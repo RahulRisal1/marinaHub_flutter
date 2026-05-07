@@ -28,7 +28,8 @@ class _exploreScreenState extends State<exploreScreen> {
       final res = await dio.get('/marinas');
       setState(() => marinas = res.data['marinas']);
     } catch (e) {
-      dioErrorManager(e);
+      debugPrint('Error: $e');
+      // dioErrorManager(e);
     } finally {
       setState(() => loading = false);
     }
@@ -62,12 +63,26 @@ class _exploreScreenState extends State<exploreScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Explore marinas',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: width * 0.07,
-                                  fontWeight: FontWeight.w600,
+                              RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: 'Explore ',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: width * 0.07,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: 'Marinas',
+                                      style: TextStyle(
+                                        color: Color(0xFFC9A84C),
+                                        fontSize: width * 0.07,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               SizedBox(height: height * 0.004),
@@ -417,7 +432,7 @@ class _exploreScreenState extends State<exploreScreen> {
                                         children: [
                                           Expanded(
                                             child: Text(
-                                              marina['name'],
+                                              marina['name'] ?? "",
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontSize: width * 0.038,
@@ -478,7 +493,7 @@ class _exploreScreenState extends State<exploreScreen> {
                                           ),
                                           SizedBox(width: width * 0.01),
                                           Text(
-                                            marina['location'],
+                                            marina['location'] ?? "",
                                             style: TextStyle(
                                               color: Colors.white38,
                                               fontSize: width * 0.03,

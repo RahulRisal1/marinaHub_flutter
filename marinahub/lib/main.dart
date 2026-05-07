@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:marinahub/splashscreen.dart';
 import 'package:marinahub/utils/colors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(
+    'accessToken',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NCwicm9sZSI6ImJvYXRlciIsImlhdCI6MTc3ODE1MjY2OSwiZXhwIjoxNzc4NzU3NDY5fQ.Z2TekYVgaxvWxIuE8bzClAmsc6b4cX2TajwC9s-aANs',
+  );
   runApp(const MyApp());
 }
 

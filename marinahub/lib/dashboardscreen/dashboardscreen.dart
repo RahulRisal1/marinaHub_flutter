@@ -18,7 +18,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final List<Widget> screens = [
     HomePage(),
     exploreScreen(),
-    bookingsScreen(),
+    MyBookingsScreen(),
     profileScreen(),
   ];
 
@@ -52,7 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Explore'),
             BottomNavigationBarItem(
               icon: Icon(Icons.calendar_today_outlined),
-              label: 'Bookings',
+              label: 'My Bookings',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
