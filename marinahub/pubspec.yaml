@@ -1,0 +1,33 @@
+name: marinahub
+description: "MarinaHub - Premium marina berth booking platform"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.8.0+1
+  shared_preferences: ^2.5.5
+  flutter_svg: ^2.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/images/portImages/
+    - assets/fonts/
+
+  fonts:
+    - family: fred
+      fonts:
+        - asset: assets/fonts/Fred.ttf
