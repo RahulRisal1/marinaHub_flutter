@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
+import 'package:marinahub/provider/userProvider.dart';
+import 'package:marinahub/screens/explore/detailExplore.dart';
+import 'package:provider/provider.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -12,12 +16,68 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool loading = false;
   List marinas = [];
-  int selectedNav = 0;
+  Position? userPosition;
+
+  double get w => MediaQuery.of(context).size.width;
+  bool get isTablet => w >= 600 && w < 1000;
+  bool get isDesktop => w >= 1000;
+  bool get isTabletOrUp => w >= 600;
+  int get cols => isDesktop
+      ? 3
+      : isTablet
+      ? 2
+      : 1;
+  double get hPad => isDesktop
+      ? 32
+      : isTablet
+      ? 28
+      : 20;
+  double get maxW => isDesktop
+      ? 1200
+      : isTablet
+      ? 900
+      : w;
+  double get heroH => isDesktop
+      ? 360
+      : isTablet
+      ? 320
+      : 280;
 
   @override
   void initState() {
     super.initState();
-    loadMarinas();
+    initLocationAndMarinas();
+  }
+
+  String getGreeting() {
+    final hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return "Good morning,";
+    } else if (hour < 17) {
+      return "Good afternoon,";
+    } else if (hour < 21) {
+      return "Good evening,";
+    } else {
+      return "Good night,";
+    }
+  }
+
+  Future<void> initLocationAndMarinas() async {
+    await requestLocation();
+    await loadMarinas();
+  }
+
+  Future<void> requestLocation() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    if (permission == LocationPermission.deniedForever) return;
+    userPosition = await Geolocator.getCurrentPosition();
   }
 
   Future<void> loadMarinas() async {
@@ -25,7 +85,25 @@ class _HomePageState extends State<HomePage> {
     try {
       final dio = await MyDio().getDio();
       final res = await dio.get('/marinas');
-      setState(() => marinas = res.data['marinas']);
+      List fetched = res.data['marinas'];
+      if (userPosition != null) {
+        fetched.sort((a, b) {
+          final distA = Geolocator.distanceBetween(
+            userPosition!.latitude,
+            userPosition!.longitude,
+            a['latitude'],
+            a['longitude'],
+          );
+          final distB = Geolocator.distanceBetween(
+            userPosition!.latitude,
+            userPosition!.longitude,
+            b['latitude'],
+            b['longitude'],
+          );
+          return distA.compareTo(distB);
+        });
+      }
+      setState(() => marinas = fetched.take(2).toList());
     } catch (e) {
       dioErrorManager(e);
     } finally {
@@ -33,375 +111,414 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String getDistance(Map marina) {
+    if (userPosition == null) return marina['location'] ?? '';
+    final meters = Geolocator.distanceBetween(
+      userPosition!.latitude,
+      userPosition!.longitude,
+      marina['latitude'],
+      marina['longitude'],
+    );
+    final distStr = meters < 1000
+        ? '${meters.toStringAsFixed(0)} m'
+        : '${(meters / 1000).toStringAsFixed(1)} km';
+    return '${marina['location']} • $distStr away';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-
+    final userProvider = context.read<UserProvider>();
     return Scaffold(
-      backgroundColor: const Color(0xFF1A2232),
+      backgroundColor: Color(0xFF1A2232),
       body: loading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFFC9A84C)),
-            )
-          : CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Stack(
-                    children: [
-                      SizedBox(
-                        height: 280,
-                        width: double.infinity,
-                        child: Image.asset(
-                          'assets/images/portImages/port.jpg',
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Container(
-                        height: 280,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withOpacity(0.3),
-                              Color(0xFF1A2232),
-                            ],
+          ? Center(child: CircularProgressIndicator(color: Color(0xFFC9A84C)))
+          : Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxW),
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Stack(
+                        children: [
+                          SizedBox(
+                            height: heroH,
+                            width: double.infinity,
+                            child: Image.asset(
+                              'assets/images/portImages/port.jpg',
+                              fit: BoxFit.cover,
+                            ),
                           ),
-                        ),
-                      ),
-                      SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.anchor,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'MARINAHUB',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 16,
-                                          letterSpacing: 3,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Stack(
-                                    children: [
-                                      const Icon(
-                                        Icons.notifications_outlined,
-                                        color: Colors.white,
-                                        size: 28,
-                                      ),
-                                      Positioned(
-                                        right: 0,
-                                        top: 0,
-                                        child: Container(
-                                          width: 14,
-                                          height: 14,
-                                          decoration: const BoxDecoration(
-                                            color: Color(0xFFC9A84C),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Center(
-                                            child: Text(
-                                              '3',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 9,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                          Container(
+                            height: heroH,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withOpacity(0.1),
+                                  Color(0xFF1A2232),
                                 ],
                               ),
-                              const SizedBox(height: 24),
-                              const Text(
-                                'Good morning,',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const Text(
-                                'Rahul',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const Text(
-                                'Where will the tide take you today?',
-                                style: TextStyle(
-                                  color: Colors.white60,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              Row(
+                            ),
+                          ),
+                          SafeArea(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: hPad),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Expanded(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 12,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: const Row(
+                                  SizedBox(height: 12),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Row(
                                         children: [
                                           Icon(
-                                            Icons.search,
-                                            color: Colors.grey,
+                                            Icons.anchor,
+                                            color: Colors.white,
                                             size: 20,
                                           ),
                                           SizedBox(width: 8),
                                           Text(
-                                            'Search marina, location or region',
+                                            'MARINAHUB',
                                             style: TextStyle(
-                                              color: Colors.grey,
-                                              fontSize: 13,
+                                              color: Colors.white,
+                                              fontSize: isTabletOrUp ? 18 : 16,
+                                              letterSpacing: 3,
+                                              fontWeight: FontWeight.w500,
                                             ),
                                           ),
                                         ],
                                       ),
+                                      Stack(
+                                        children: [
+                                          Icon(
+                                            Icons.notifications_outlined,
+                                            color: Colors.white,
+                                            size: 28,
+                                          ),
+                                          Positioned(
+                                            right: 0,
+                                            top: 0,
+                                            child: Container(
+                                              width: 14,
+                                              height: 14,
+                                              decoration: BoxDecoration(
+                                                color: Color(0xFFC9A84C),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  '3',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 9,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: isTabletOrUp ? 32 : 24),
+                                  Text(
+                                    getGreeting(),
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: isTabletOrUp ? 16 : 14,
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF243044),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Icon(
-                                      Icons.tune,
+                                  Text(
+                                    userProvider.userData?["name"] ?? "Captain",
+                                    style: TextStyle(
                                       color: Colors.white,
-                                      size: 20,
+                                      fontSize: isTabletOrUp ? 40 : 30,
+                                      fontWeight: FontWeight.w600,
                                     ),
+                                  ),
+                                  Text(
+                                    'Where will the tide take you today?',
+                                    style: TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: isTabletOrUp ? 15 : 13,
+                                    ),
+                                  ),
+                                  SizedBox(height: isTabletOrUp ? 28 : 20),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: isTabletOrUp ? 16 : 12,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.search,
+                                                color: Colors.grey,
+                                                size: 20,
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Search marina, location or region',
+                                                style: TextStyle(
+                                                  color: Colors.grey,
+                                                  fontSize: isTabletOrUp
+                                                      ? 14
+                                                      : 13,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Container(
+                                        padding: EdgeInsets.all(
+                                          isTabletOrUp ? 16 : 12,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Color(0xFF243044),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          Icons.tune,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Nearby marinas',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Row(
-                          children: const [
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             Text(
-                              'See all',
+                              'Nearby Marinas',
                               style: TextStyle(
-                                color: Color(0xFFC9A84C),
-                                fontSize: 13,
+                                color: Colors.white,
+                                fontSize: isTabletOrUp ? 20 : 18,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                            SizedBox(width: 4),
-                            Icon(
-                              Icons.arrow_forward,
-                              color: Color(0xFFC9A84C),
-                              size: 16,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                SliverList(
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final marina = marinas[index];
-                    final isAvailable = index % 2 == 0;
-                    return Padding(
-                      padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF243044),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Stack(
+                            Row(
                               children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: Radius.circular(6),
-                                    topRight: Radius.circular(6),
-                                  ),
-                                  child: Image.asset(
-                                    index % 2 == 0
-                                        ? 'assets/images/portImages/port.jpg'
-                                        : 'assets/images/portImages/port2.png',
-                                    width: double.infinity,
-                                    height: 110,
-                                    fit: BoxFit.cover,
+                                Text(
+                                  'See all',
+                                  style: TextStyle(
+                                    color: Color(0xFFC9A84C),
+                                    fontSize: isTabletOrUp ? 14 : 13,
                                   ),
                                 ),
-                                Positioned(
-                                  top: 12,
-                                  right: 12,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isAvailable
-                                          ? const Color(0xFF2D7D4F)
-                                          : const Color(0xFFC4793A),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      isAvailable ? 'Available' : 'Almost full',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
+                                SizedBox(width: 4),
+                                Icon(
+                                  Icons.arrow_forward,
+                                  color: Color(0xFFC9A84C),
+                                  size: 16,
                                 ),
                               ],
                             ),
-                            Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(horizontal: hPad),
+                      sliver: SliverGrid(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: cols,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: cols == 1
+                              ? (w / 320)
+                              : cols == 2
+                              ? 1.4
+                              : 1.25,
+                        ),
+                        delegate: SliverChildBuilderDelegate((context, index) {
+                          final marina = marinas[index];
+                          final isAvailable = index % 2 == 0;
+                          return GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      DetailMarinas(marina: marina),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Color(0xFF243044),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        marina['name'] ?? "",
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          const Icon(
-                                            Icons.location_on_outlined,
-                                            color: Colors.white38,
-                                            size: 13,
+                                  Expanded(
+                                    child: Stack(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: Radius.circular(8),
+                                            topRight: Radius.circular(8),
                                           ),
-                                          const SizedBox(width: 3),
-                                          Text(
-                                            marina['location'] ?? "",
-                                            style: const TextStyle(
-                                              color: Colors.white38,
-                                              fontSize: 12,
+                                          child: Image.asset(
+                                            index % 2 == 0
+                                                ? 'assets/images/portImages/port.jpg'
+                                                : 'assets/images/portImages/port2.png',
+                                            width: double.infinity,
+                                            height: double.infinity,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: 12,
+                                          right: 12,
+                                          child: Container(
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isAvailable
+                                                  ? Color(0xFF2D7D4F)
+                                                  : Color(0xFFC4793A),
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                            ),
+                                            child: // in your marina card
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.anchor,
+                                                  color: Colors.white38,
+                                                  size: 13,
+                                                ),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  '${marina['totalBerths'] ?? 0} berth${(marina['totalBerths'] ?? 0) == 1 ? '' : 's'}',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                        ],
-                                      ),
-                                    ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      const Text(
-                                        'From',
-                                        style: TextStyle(
-                                          color: Colors.white54,
-                                          fontSize: 11,
+                                  Padding(
+                                    padding: EdgeInsets.all(14),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                marina['name'] ?? '',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: isTabletOrUp
+                                                      ? 16
+                                                      : 15,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.location_on_outlined,
+                                                    color: Colors.white38,
+                                                    size: 13,
+                                                  ),
+                                                  SizedBox(width: 3),
+                                                  Flexible(
+                                                    child: Text(
+                                                      getDistance(marina),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: TextStyle(
+                                                        color: Colors.white38,
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                      const Text(
-                                        '750 NOK',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'From',
+                                              style: TextStyle(
+                                                color: Colors.white54,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                            Text(
+                                              '750 NOK',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: isTabletOrUp
+                                                    ? 16
+                                                    : 15,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
+                          );
+                        }, childCount: marinas.length),
                       ),
-                    );
-                  }, childCount: marinas.length),
+                    ),
+                    SliverToBoxAdapter(child: SizedBox(height: 80)),
+                  ],
                 ),
-                SliverToBoxAdapter(child: SizedBox(height: 80)),
-              ],
+              ),
             ),
-
-      // bottomNavigationBar: Container(
-      //   decoration: const BoxDecoration(
-      //     color: Color(0xFF131C2B),
-      //     border: Border(top: BorderSide(color: Color(0xFF243044), width: 0.5)),
-      //   ),
-      //   child: BottomNavigationBar(
-      //     backgroundColor: Colors.transparent,
-      //     elevation: 0,
-      //     selectedItemColor: const Color(0xFFC9A84C),
-      //     unselectedItemColor: Colors.white38,
-      //     type: BottomNavigationBarType.fixed,
-      //     selectedFontSize: 11,
-      //     unselectedFontSize: 11,
-      //     items: const [
-      //       BottomNavigationBarItem(
-      //         icon: Icon(Icons.home_outlined),
-      //         label: 'Home',
-      //       ),
-      //       BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Explore'),
-      //       BottomNavigationBarItem(
-      //         icon: Icon(Icons.calendar_today_outlined),
-      //         label: 'Bookings',
-      //       ),
-      //       BottomNavigationBarItem(
-      //         icon: Icon(Icons.person_outline),
-      //         label: 'Profile',
-      //       ),
-      //     ],
-      //   ),
-      // ),
     );
   }
 }

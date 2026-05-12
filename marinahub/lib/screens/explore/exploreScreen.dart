@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
+import 'package:marinahub/screens/explore/detailExplore.dart';
 
 class exploreScreen extends StatefulWidget {
   const exploreScreen({super.key});
@@ -12,13 +14,60 @@ class exploreScreen extends StatefulWidget {
 class _exploreScreenState extends State<exploreScreen> {
   bool loading = false;
   List marinas = [];
+  List filteredMarinas = [];
   int selectedFilter = 0;
-  List<String> filters = ['All', 'Nearby', 'Popular', 'Favorites'];
+  String searchQuery = '';
+  Position? userPosition;
+
+  List<String> filters = ['All', 'Nearby', 'Available', 'Almost Full'];
+
+  List<double> ratings = [4.8, 4.7, 4.6, 4.5, 4.9];
+  List<int> reviews = [126, 89, 72, 54, 143];
+
+  double get w => MediaQuery.of(context).size.width;
+  bool get isBig => w >= 600;
+  bool get isDesktop => w >= 1000;
+  double get hPad => isBig ? 28.0 : 20.0;
+  double get maxW => isDesktop
+      ? 1200
+      : isBig
+      ? 900
+      : w;
+  int get cols => isDesktop
+      ? 3
+      : isBig
+      ? 2
+      : 1;
+
+  double get titleSize => isBig ? 32.0 : 26.0;
+  double get subtitleSize => isBig ? 14.0 : 12.0;
+  double get sectionTitleSize => isBig ? 20.0 : 17.0;
+  double get cardTitleSize => isBig ? 16.0 : 14.5;
+  double get bodySize => isBig ? 13.0 : 11.5;
+  double get smallSize => isBig ? 12.0 : 11.0;
+  double get priceSize => isBig ? 17.0 : 14.5;
 
   @override
   void initState() {
     super.initState();
-    loadMarinas();
+    initLocationAndMarinas();
+  }
+
+  Future<void> initLocationAndMarinas() async {
+    await requestLocation();
+    await loadMarinas();
+  }
+
+  Future<void> requestLocation() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    if (permission == LocationPermission.deniedForever) return;
+    userPosition = await Geolocator.getCurrentPosition();
   }
 
   Future<void> loadMarinas() async {
@@ -26,516 +75,587 @@ class _exploreScreenState extends State<exploreScreen> {
     try {
       final dio = await MyDio().getDio();
       final res = await dio.get('/marinas');
-      setState(() => marinas = res.data['marinas']);
+      setState(() {
+        marinas = res.data['marinas'];
+        applyFilter();
+      });
     } catch (e) {
-      debugPrint('Error: $e');
-      // dioErrorManager(e);
+      dioErrorManager(e);
     } finally {
       setState(() => loading = false);
     }
   }
 
+  double getDistanceInKm(Map marina) {
+    if (userPosition == null) return double.infinity;
+    final meters = Geolocator.distanceBetween(
+      userPosition!.latitude,
+      userPosition!.longitude,
+      marina['latitude'],
+      marina['longitude'],
+    );
+    return meters / 1000;
+  }
+
+  String getDistanceLabel(Map marina) {
+    if (userPosition == null) return marina['location'] ?? '';
+    final km = getDistanceInKm(marina);
+    final distStr = km < 1
+        ? '${(km * 1000).toStringAsFixed(0)} m'
+        : '${km.toStringAsFixed(1)} km';
+    return '${marina['location']} • $distStr away';
+  }
+
+  void applyFilter() {
+    List result = marinas.where((m) {
+      final name = (m['name'] ?? '').toString().toLowerCase();
+      final location = (m['location'] ?? '').toString().toLowerCase();
+      return searchQuery.isEmpty ||
+          name.contains(searchQuery.toLowerCase()) ||
+          location.contains(searchQuery.toLowerCase());
+    }).toList();
+
+    if (selectedFilter == 1) {
+      // Nearby — sort by distance and take within 50km
+      result.sort((a, b) => getDistanceInKm(a).compareTo(getDistanceInKm(b)));
+      result = result.where((m) => getDistanceInKm(m) <= 50).toList();
+    } else if (selectedFilter == 2) {
+      result = result.where((m) => result.indexOf(m) % 2 == 0).toList();
+    } else if (selectedFilter == 3) {
+      result = result.where((m) => result.indexOf(m) % 2 != 0).toList();
+    }
+
+    setState(() => filteredMarinas = result);
+  }
+
+  void onFilterTap(int index) {
+    setState(() => selectedFilter = index);
+    applyFilter();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.of(context).size.height;
-    final width = MediaQuery.of(context).size.width;
-
     return Scaffold(
-      backgroundColor: const Color(0xFF0D1B2A),
+      backgroundColor: Color(0xFF0D1B2A),
       body: loading
-          ? Center(
-              child: CircularProgressIndicator(color: const Color(0xFFC9A84C)),
-            )
+          ? Center(child: CircularProgressIndicator(color: Color(0xFFC9A84C)))
           : SafeArea(
-              child: CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        width * 0.05,
-                        height * 0.02,
-                        width * 0.05,
-                        0,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: 'Explore ',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: width * 0.07,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: 'Marinas',
-                                      style: TextStyle(
-                                        color: Color(0xFFC9A84C),
-                                        fontSize: width * 0.07,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              SizedBox(height: height * 0.004),
-                              Text(
-                                'Discover premium marinas across Norway',
-                                style: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: width * 0.032,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Container(
-                            padding: EdgeInsets.all(width * 0.03),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1A2A3A),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: const Color(0xFFC9A84C).withOpacity(0.4),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.map_outlined,
-                              color: const Color(0xFFC9A84C),
-                              size: width * 0.055,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        width * 0.05,
-                        height * 0.02,
-                        width * 0.05,
-                        0,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: width * 0.04,
-                                vertical: height * 0.015,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1A2A3A),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.search,
-                                    color: Colors.white38,
-                                    size: width * 0.05,
-                                  ),
-                                  SizedBox(width: width * 0.02),
-                                  Text(
-                                    'Search marina, location or region',
-                                    style: TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: width * 0.032,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: width * 0.03),
-                          Container(
-                            padding: EdgeInsets.all(width * 0.035),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1A2A3A),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              Icons.tune,
-                              color: Colors.white,
-                              size: width * 0.05,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        width * 0.05,
-                        height * 0.02,
-                        width * 0.05,
-                        0,
-                      ),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: List.generate(filters.length, (i) {
-                            final selected = selectedFilter == i;
-                            return GestureDetector(
-                              onTap: () => setState(() => selectedFilter = i),
-                              child: Container(
-                                margin: EdgeInsets.only(right: width * 0.03),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: width * 0.04,
-                                  vertical: height * 0.012,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: selected
-                                      ? const Color(0xFFC9A84C)
-                                      : const Color(0xFF1A2A3A),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Row(
-                                  children: [
-                                    if (i == 0)
-                                      Icon(
-                                        Icons.grid_view_rounded,
-                                        color: selected
-                                            ? Colors.black
-                                            : Colors.white38,
-                                        size: width * 0.04,
-                                      ),
-                                    if (i == 1)
-                                      Icon(
-                                        Icons.location_on_outlined,
-                                        color: selected
-                                            ? Colors.black
-                                            : Colors.white38,
-                                        size: width * 0.04,
-                                      ),
-                                    if (i == 2)
-                                      Icon(
-                                        Icons.star_border,
-                                        color: selected
-                                            ? Colors.black
-                                            : Colors.white38,
-                                        size: width * 0.04,
-                                      ),
-                                    if (i == 3)
-                                      Icon(
-                                        Icons.favorite_border,
-                                        color: selected
-                                            ? Colors.black
-                                            : Colors.white38,
-                                        size: width * 0.04,
-                                      ),
-                                    SizedBox(width: width * 0.015),
-                                    Text(
-                                      filters[i],
-                                      style: TextStyle(
-                                        color: selected
-                                            ? Colors.black
-                                            : Colors.white60,
-                                        fontSize: width * 0.033,
-                                        fontWeight: selected
-                                            ? FontWeight.w600
-                                            : FontWeight.w400,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        width * 0.05,
-                        height * 0.02,
-                        width * 0.05,
-                        0,
-                      ),
-                      child: Container(
-                        height: height * 0.2,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          image: DecorationImage(
-                            image: AssetImage(
-                              'assets/images/portImages/port.jpg',
-                            ),
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.black.withOpacity(0.6),
-                                Colors.transparent,
-                              ],
-                            ),
-                          ),
-                          padding: EdgeInsets.all(width * 0.05),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Summer in Norway',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: width * 0.055,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              SizedBox(height: height * 0.006),
-                              Text(
-                                'Explore breathtaking destinations\nfor your next voyage',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: width * 0.03,
-                                ),
-                              ),
-                              SizedBox(height: height * 0.012),
-                              Row(
-                                children: [
-                                  Text(
-                                    'Explore now',
-                                    style: TextStyle(
-                                      color: const Color(0xFFC9A84C),
-                                      fontSize: width * 0.032,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  SizedBox(width: width * 0.015),
-                                  Icon(
-                                    Icons.arrow_forward,
-                                    color: const Color(0xFFC9A84C),
-                                    size: width * 0.04,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        width * 0.05,
-                        height * 0.025,
-                        width * 0.05,
-                        height * 0.015,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Recommended for you',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: width * 0.045,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'View all',
-                            style: TextStyle(
-                              color: const Color(0xFFC9A84C),
-                              fontSize: width * 0.033,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final marina = marinas[index];
-                      final isAvailable = index % 2 == 0;
-                      final List<double> ratings = [4.8, 4.7, 4.6, 4.5, 4.9];
-                      final List<int> reviews = [126, 89, 72, 54, 143];
-                      final rating = ratings[index % ratings.length];
-                      final review = reviews[index % reviews.length];
-
-                      return Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          width * 0.05,
-                          0,
-                          width * 0.05,
-                          height * 0.015,
-                        ),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1A2A3A),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxW),
+                  child: CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
                           child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Stack(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: Radius.circular(12),
-                                      bottomLeft: Radius.circular(12),
-                                    ),
-                                    child: Image.asset(
-                                      index % 2 == 0
-                                          ? 'assets/images/portImages/port.jpg'
-                                          : 'assets/images/portImages/port2.png',
-                                      width: width * 0.28,
-                                      height: width * 0.28,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 8,
-                                    left: 8,
-                                    child: GestureDetector(
-                                      child: Icon(
-                                        Icons.favorite_border,
-                                        color: Colors.white,
-                                        size: width * 0.05,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(width: width * 0.03),
                               Expanded(
-                                child: Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    vertical: height * 0.015,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    RichText(
+                                      text: TextSpan(
                                         children: [
-                                          Expanded(
-                                            child: Text(
-                                              marina['name'] ?? "",
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: width * 0.038,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                          TextSpan(
+                                            text: 'Explore ',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: titleSize,
+                                              fontWeight: FontWeight.w600,
                                             ),
                                           ),
-                                          Container(
-                                            padding: EdgeInsets.symmetric(
-                                              horizontal: width * 0.02,
-                                              vertical: 3,
+                                          TextSpan(
+                                            text: 'Marinas',
+                                            style: TextStyle(
+                                              color: Color(0xFFC9A84C),
+                                              fontSize: titleSize,
+                                              fontWeight: FontWeight.w600,
                                             ),
-                                            decoration: BoxDecoration(
-                                              color: isAvailable
-                                                  ? const Color(0xFF2D7D4F)
-                                                  : const Color(0xFFC4793A),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                            ),
-                                            child: Text(
-                                              isAvailable
-                                                  ? 'Available'
-                                                  : 'Almost full',
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      'Discover premium marinas across Norway',
+                                      style: TextStyle(
+                                        color: Colors.white38,
+                                        fontSize: subtitleSize,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Container(
+                                padding: EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Color(0xFF1A2A3A),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: Color(0xFFC9A84C).withOpacity(0.4),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.map_outlined,
+                                  color: Color(0xFFC9A84C),
+                                  size: isBig ? 24 : 22,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
+                          child: TextField(
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: bodySize,
+                            ),
+                            onChanged: (val) {
+                              searchQuery = val;
+                              applyFilter();
+                            },
+                            decoration: InputDecoration(
+                              hintText: 'Search marina, location or region',
+                              hintStyle: TextStyle(
+                                color: Colors.white38,
+                                fontSize: bodySize,
+                              ),
+                              prefixIcon: Icon(
+                                Icons.search,
+                                color: Colors.white38,
+                                size: 20,
+                              ),
+                              filled: true,
+                              fillColor: Color(0xFF1A2A3A),
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: isBig ? 16 : 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: List.generate(filters.length, (i) {
+                                final selected = selectedFilter == i;
+                                final icons = [
+                                  Icons.grid_view_rounded,
+                                  Icons.location_on_outlined,
+                                  Icons.check_circle_outline,
+                                  Icons.warning_amber_outlined,
+                                ];
+                                return GestureDetector(
+                                  onTap: () => onFilterTap(i),
+                                  child: Container(
+                                    margin: EdgeInsets.only(right: 10),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: isBig ? 12 : 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? Color(0xFFC9A84C)
+                                          : Color(0xFF1A2A3A),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          icons[i],
+                                          color: selected
+                                              ? Colors.black
+                                              : Colors.white38,
+                                          size: 16,
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          filters[i],
+                                          style: TextStyle(
+                                            color: selected
+                                                ? Colors.black
+                                                : Colors.white60,
+                                            fontSize: bodySize,
+                                            fontWeight: selected
+                                                ? FontWeight.w600
+                                                : FontWeight.w400,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 18, hPad, 0),
+                          child: AspectRatio(
+                            aspectRatio: isBig ? 3.2 : 2.2,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.asset(
+                                    'assets/images/portImages/port.jpg',
+                                    fit: BoxFit.cover,
+                                  ),
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.black.withOpacity(0.65),
+                                          Colors.transparent,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: EdgeInsets.all(isBig ? 24 : 18),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          'Summer in Norway',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: isBig ? 24 : 20,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        SizedBox(height: 4),
+                                        Text(
+                                          'Explore breathtaking destinations\nfor your next voyage',
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: bodySize,
+                                          ),
+                                        ),
+                                        SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'Explore now',
                                               style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: width * 0.025,
+                                                color: Color(0xFFC9A84C),
+                                                fontSize: bodySize,
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(height: height * 0.005),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.star,
-                                            color: const Color(0xFFC9A84C),
-                                            size: width * 0.035,
-                                          ),
-                                          SizedBox(width: width * 0.01),
-                                          Text(
-                                            '$rating ($review)',
-                                            style: TextStyle(
-                                              color: Colors.white54,
-                                              fontSize: width * 0.03,
+                                            SizedBox(width: 6),
+                                            Icon(
+                                              Icons.arrow_forward,
+                                              color: Color(0xFFC9A84C),
+                                              size: 16,
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(height: height * 0.005),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.location_on_outlined,
-                                            color: Colors.white38,
-                                            size: width * 0.033,
-                                          ),
-                                          SizedBox(width: width * 0.01),
-                                          Text(
-                                            marina['location'] ?? "",
-                                            style: TextStyle(
-                                              color: Colors.white38,
-                                              fontSize: width * 0.03,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(height: height * 0.01),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            'From',
-                                            style: TextStyle(
-                                              color: Colors.white38,
-                                              fontSize: width * 0.028,
-                                            ),
-                                          ),
-                                          SizedBox(width: width * 0.015),
-                                          Text(
-                                            '750 NOK',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: width * 0.038,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 22, hPad, 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${filteredMarinas.length} Marinas found',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: sectionTitleSize,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              SizedBox(width: width * 0.03),
+                              Text(
+                                'View all',
+                                style: TextStyle(
+                                  color: Color(0xFFC9A84C),
+                                  fontSize: bodySize,
+                                ),
+                              ),
                             ],
                           ),
                         ),
-                      );
-                    }, childCount: marinas.length),
-                  ),
+                      ),
 
-                  SliverToBoxAdapter(child: SizedBox(height: height * 0.02)),
-                ],
+                      filteredMarinas.isEmpty
+                          ? SliverToBoxAdapter(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 60),
+                                child: Center(
+                                  child: Text(
+                                    selectedFilter == 1
+                                        ? 'No marinas within 50 km'
+                                        : 'No marinas found',
+                                    style: TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: bodySize,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : SliverPadding(
+                              padding: EdgeInsets.symmetric(horizontal: hPad),
+                              sliver: SliverGrid(
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: cols,
+                                      mainAxisSpacing: 12,
+                                      crossAxisSpacing: 12,
+                                      mainAxisExtent: isBig ? 140 : 120,
+                                    ),
+                                delegate: SliverChildBuilderDelegate((
+                                  context,
+                                  index,
+                                ) {
+                                  final marina = filteredMarinas[index];
+                                  final isAvailable = index % 2 == 0;
+                                  final rating =
+                                      ratings[index % ratings.length];
+                                  final review =
+                                      reviews[index % reviews.length];
+
+                                  return GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              DetailMarinas(marina: marina),
+                                        ),
+                                      );
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Color(0xFF1A2A3A),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          AspectRatio(
+                                            aspectRatio: 1,
+                                            child: Stack(
+                                              children: [
+                                                ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.only(
+                                                        topLeft:
+                                                            Radius.circular(12),
+                                                        bottomLeft:
+                                                            Radius.circular(12),
+                                                      ),
+                                                  child: Image.asset(
+                                                    index % 2 == 0
+                                                        ? 'assets/images/portImages/port.jpg'
+                                                        : 'assets/images/portImages/port2.png',
+                                                    width: double.infinity,
+                                                    height: double.infinity,
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                                ),
+                                                Positioned(
+                                                  top: 8,
+                                                  left: 8,
+                                                  child: Icon(
+                                                    Icons.favorite_border,
+                                                    color: Colors.white,
+                                                    size: 20,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Padding(
+                                              padding: EdgeInsets.fromLTRB(
+                                                12,
+                                                10,
+                                                12,
+                                                10,
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Row(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          marina['name'] ?? '',
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontSize:
+                                                                cardTitleSize,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      SizedBox(width: 6),
+                                                      Container(
+                                                        padding:
+                                                            EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 3,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: isAvailable
+                                                              ? Color(
+                                                                  0xFF2D7D4F,
+                                                                )
+                                                              : Color(
+                                                                  0xFFC4793A,
+                                                                ),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                20,
+                                                              ),
+                                                        ),
+                                                        child: Text(
+                                                          isAvailable
+                                                              ? 'Available'
+                                                              : 'Almost full',
+                                                          style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontSize:
+                                                                smallSize - 1,
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.star,
+                                                        color: Color(
+                                                          0xFFC9A84C,
+                                                        ),
+                                                        size: 14,
+                                                      ),
+                                                      SizedBox(width: 4),
+                                                      Text(
+                                                        '$rating ($review)',
+                                                        style: TextStyle(
+                                                          color: Colors.white54,
+                                                          fontSize: smallSize,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons
+                                                            .location_on_outlined,
+                                                        color: Colors.white38,
+                                                        size: 13,
+                                                      ),
+                                                      SizedBox(width: 3),
+                                                      Expanded(
+                                                        child: Text(
+                                                          getDistanceLabel(
+                                                            marina,
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: TextStyle(
+                                                            color:
+                                                                Colors.white38,
+                                                            fontSize: smallSize,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  Row(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .baseline,
+                                                    textBaseline:
+                                                        TextBaseline.alphabetic,
+                                                    children: [
+                                                      Text(
+                                                        'From',
+                                                        style: TextStyle(
+                                                          color: Colors.white38,
+                                                          fontSize:
+                                                              smallSize - 1,
+                                                        ),
+                                                      ),
+                                                      SizedBox(width: 6),
+                                                      Text(
+                                                        '750 NOK',
+                                                        style: TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: priceSize,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }, childCount: filteredMarinas.length),
+                              ),
+                            ),
+
+                      SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    ],
+                  ),
+                ),
               ),
             ),
     );

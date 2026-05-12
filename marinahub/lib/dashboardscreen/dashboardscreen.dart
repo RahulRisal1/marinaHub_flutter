@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:marinahub/more/morePage.dart';
 import 'package:marinahub/screens/bookings/booking.dart';
 import 'package:marinahub/screens/explore/exploreScreen.dart';
 import 'package:marinahub/screens/homePage.dart';
-
-import 'package:marinahub/screens/profile/profileScreen.dart';
+import 'package:marinahub/screens/service/requestService.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -12,31 +12,84 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
   int selectedNav = 0;
+  int _previousNav = 0;
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
 
   final List<Widget> screens = [
     HomePage(),
     exploreScreen(),
     MyBookingsScreen(),
-    profileScreen(),
+    requestService(),
+    MorePage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 80),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
+    _scaleAnimation = Tween<double>(
+      begin: 0.92,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onNavTap(int index) {
+    if (index == selectedNav) return;
+    _controller.reverse().then((_) {
+      setState(() {
+        _previousNav = selectedNav;
+        selectedNav = index;
+      });
+      _controller.forward();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D1B2A),
-      body: screens[selectedNav],
+      body: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return FadeTransition(
+            opacity: _fadeAnimation,
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: screens[selectedNav],
+            ),
+          );
+        },
+      ),
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF131C2B),
-          border: Border(
-            top: BorderSide(color: const Color(0xFF243044), width: 0.5),
-          ),
+        decoration: const BoxDecoration(
+          color: Color(0xFF131C2B),
+          border: Border(top: BorderSide(color: Color(0xFF243044), width: 0.5)),
         ),
         child: BottomNavigationBar(
           currentIndex: selectedNav,
-          onTap: (index) => setState(() => selectedNav = index),
+          onTap: _onNavTap,
           backgroundColor: Colors.transparent,
           elevation: 0,
           selectedItemColor: const Color(0xFFC9A84C),
@@ -44,7 +97,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           type: BottomNavigationBarType.fixed,
           selectedFontSize: 11,
           unselectedFontSize: 11,
-          items: [
+          items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.home_outlined),
               label: 'Home',
@@ -52,12 +105,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Explore'),
             BottomNavigationBarItem(
               icon: Icon(Icons.calendar_today_outlined),
-              label: 'My Bookings',
+              label: 'Bookings',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              label: 'Profile',
+              icon: Icon(Icons.handyman_outlined),
+              label: 'Service',
             ),
+            BottomNavigationBarItem(icon: Icon(Icons.more), label: 'More'),
           ],
         ),
       ),

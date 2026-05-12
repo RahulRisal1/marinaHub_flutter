@@ -1,16 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:provider/provider.dart';
+
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:marinahub/provider/userProvider.dart';
 import 'package:marinahub/splashscreen.dart';
 import 'package:marinahub/utils/colors.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+
   final prefs = await SharedPreferences.getInstance();
   await prefs.setString(
     'accessToken',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NCwicm9sZSI6ImJvYXRlciIsImlhdCI6MTc3ODE1MjY2OSwiZXhwIjoxNzc4NzU3NDY5fQ.Z2TekYVgaxvWxIuE8bzClAmsc6b4cX2TajwC9s-aANs',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImU5MDk4NWFhLTFlNmQtNGRhNS1iYzA2LWQwNzU5MGRkZGFmNCIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc3ODUwMjE1NH0.xOunTZnf6CzO2gq0w0ytopGDsQXeU3sA9elXVJZoV0Y',
   );
-  runApp(const MyApp());
+
+  runApp(
+    MultiProvider(
+      providers: [ChangeNotifierProvider(create: (_) => UserProvider())],
+      child: const MyApp(),
+    ),
+  );
 }
 
 final GlobalKey<NavigatorState> navigationKey = GlobalKey<NavigatorState>();
