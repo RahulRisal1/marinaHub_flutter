@@ -16,6 +16,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
   bool isLoading = false;
   List<dynamic> bookingsData = [];
   List<dynamic> filteredBookings = [];
+  List<dynamic> serviceOrders = [];
   late TabController tabController;
   final TextEditingController searchController = TextEditingController();
 
@@ -23,7 +24,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
   void initState() {
     super.initState();
     tabController = TabController(length: 3, vsync: this);
-    loadMyBookings();
+    loadAll();
     searchController.addListener(onSearch);
   }
 
@@ -32,6 +33,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     tabController.dispose();
     searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> loadAll() async {
+    await Future.wait([loadMyBookings(), loadServiceOrders()]);
   }
 
   String marinaName(dynamic booking) => booking['marina']?['name'] ?? '';
@@ -61,9 +66,34 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
       });
     } on DioException catch (e) {
       dioErrorManager(e);
-      debugPrint('Bookings error: $e');
     } finally {
       setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> loadServiceOrders() async {
+    try {
+      final dio = await MyDio().getDio();
+      final res = await dio.get('/service-orders/my');
+      setState(() => serviceOrders = res.data['orders'] ?? []);
+    } catch (_) {}
+  }
+
+  Future<void> cancelServiceOrder(String orderId) async {
+    try {
+      final dio = await MyDio().getDio();
+      await dio.delete('/service-orders/$orderId');
+      await loadServiceOrders();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Service order cancelled'),
+            backgroundColor: Color(0xFF7D2D2D),
+          ),
+        );
+      }
+    } catch (e) {
+      dioErrorManager(e);
     }
   }
 
@@ -75,7 +105,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
       if (!mounted) return;
       tabController.animateTo(1);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Checked in! Your booking is now ongoing.'),
           backgroundColor: Color(0xFF2D7D4F),
         ),
@@ -93,7 +123,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
       if (!mounted) return;
       tabController.animateTo(2);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Checked out! Hope you enjoyed your stay.'),
           backgroundColor: Color(0xFF1A4A6B),
         ),
@@ -103,14 +133,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     }
   }
 
-  // upcoming = confirmed and from_date is in the future
   List<dynamic> get upcomingBookings => filteredBookings.where((b) {
     if (b['status'] != 'confirmed') return false;
     final from = DateTime.parse(b['from_date']).toLocal();
     return from.isAfter(DateTime.now());
   }).toList();
 
-  // ongoing = confirmed time range is now OR checked_in
   List<dynamic> get ongoingBookings => filteredBookings.where((b) {
     if (b['status'] == 'checked_in') return true;
     if (b['status'] == 'confirmed') {
@@ -122,9 +150,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     return false;
   }).toList();
 
-  // past = completed or cancelled (explicit status, not time based)
   List<dynamic> get pastBookings => filteredBookings.where((b) {
     return b['status'] == 'completed' || b['status'] == 'cancelled';
+  }).toList();
+
+  // Active service orders (not completed/cancelled)
+  List<dynamic> get activeServiceOrders => serviceOrders.where((o) {
+    return o['status'] != 'completed' && o['status'] != 'cancelled';
   }).toList();
 
   String formatDateTime(String dateStr) {
@@ -164,23 +196,21 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     return '$days nights, ${remainingHours}h';
   }
 
-  // fixed — explicit color for every status
   Color statusColor(String status) {
     switch (status) {
       case 'confirmed':
-        return Color(0xFF2D7D4F);
+        return const Color(0xFF2D7D4F);
       case 'checked_in':
-        return Color(0xFF1A6B4A);
+        return const Color(0xFF1A6B4A);
       case 'completed':
-        return Color(0xFF1A4A6B);
+        return const Color(0xFF1A4A6B);
       case 'cancelled':
-        return Color(0xFF7D2D2D);
+        return const Color(0xFF7D2D2D);
       default:
-        return Color(0xFF4A4A4A);
+        return const Color(0xFF4A4A4A);
     }
   }
 
-  // fixed — explicit label for every status
   String statusLabel(String status) {
     switch (status) {
       case 'confirmed':
@@ -196,8 +226,41 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     }
   }
 
-  bool isTabletOrUp(double w) => w >= 600;
+  Color serviceStatusColor(String status) {
+    switch (status) {
+      case 'pending':
+        return const Color(0xFF8B6914);
+      case 'accepted':
+        return const Color(0xFF1A4A6B);
+      case 'in_progress':
+        return const Color(0xFF1A6B4A);
+      case 'completed':
+        return const Color(0xFF2D7D4F);
+      case 'cancelled':
+        return const Color(0xFF7D2D2D);
+      default:
+        return const Color(0xFF4A4A4A);
+    }
+  }
 
+  String serviceStatusLabel(String status) {
+    switch (status) {
+      case 'pending':
+        return 'Pending';
+      case 'accepted':
+        return 'Accepted';
+      case 'in_progress':
+        return 'In Progress';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return status;
+    }
+  }
+
+  bool isTabletOrUp(double w) => w >= 600;
   double maxContentWidth(double w) {
     if (w >= 1000) return 900;
     if (w >= 600) return 720;
@@ -206,14 +269,14 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
 
   Widget buildStatusPill(String label, Color color) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         label,
-        style: TextStyle(
+        style: const TextStyle(
           color: Colors.white,
           fontSize: 11,
           fontWeight: FontWeight.w500,
@@ -225,14 +288,14 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
   Widget buildStatCell(IconData icon, String label, String value, bool isBig) {
     return Expanded(
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Icon(icon, color: Colors.white38, size: isBig ? 14 : 13),
-                SizedBox(width: 4),
+                const SizedBox(width: 4),
                 Text(
                   label,
                   style: TextStyle(
@@ -242,7 +305,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                 ),
               ],
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               value,
               maxLines: 1,
@@ -292,6 +355,122 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     );
   }
 
+  // Service orders section shown inside booking card
+  Widget buildServiceOrdersSection(bool isBig) {
+    if (activeServiceOrders.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: EdgeInsets.fromLTRB(
+        isBig ? 18 : 14,
+        0,
+        isBig ? 18 : 14,
+        isBig ? 14 : 12,
+      ),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1421),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF243044), width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.handyman_outlined, color: Color(0xFFC9A84C), size: 14),
+              SizedBox(width: 6),
+              Text(
+                'Active Service Orders',
+                style: TextStyle(
+                  color: Color(0xFFC9A84C),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...activeServiceOrders.map(
+            (order) => _buildServiceOrderRow(order, isBig),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServiceOrderRow(dynamic order, bool isBig) {
+    final status = order['status'] ?? 'pending';
+    final serviceName =
+        order['Service']?['name'] ?? order['service']?['name'] ?? 'Service';
+    final quantity = order['quantity'] ?? 0;
+    final unit = order['unit'] ?? '';
+    final total = order['total_price'] ?? 0;
+    final currency = order['currency'] ?? 'NOK';
+    final orderId = order['id'] as String;
+    final canCancel = status == 'pending';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: serviceStatusColor(status),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  serviceName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  '$quantity $unit · $total $currency',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: serviceStatusColor(status).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: serviceStatusColor(status).withOpacity(0.5),
+              ),
+            ),
+            child: Text(
+              serviceStatusLabel(status),
+              style: TextStyle(
+                color: serviceStatusColor(status),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (canCancel) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => cancelServiceOrder(orderId),
+              child: const Icon(Icons.close, color: Colors.white38, size: 16),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget buildCard(dynamic booking, bool isBig) {
     final status = booking['status'] as String;
     final duration = formatDuration(booking['from_date'], booking['to_date']);
@@ -299,18 +478,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     final imageHeight = isBig ? 200.0 : 170.0;
     final bookingId = booking['id'] as String;
 
-    // check if check-in is allowed (within 1 hour before from_date)
     final from = DateTime.parse(booking['from_date']).toLocal();
     final now = DateTime.now();
     final diffHours = from.difference(now).inMinutes / 60;
     final canCheckIn =
         status == 'confirmed' &&
         diffHours <= 1 &&
-        from.isAfter(now.subtract(Duration(hours: 24)));
+        from.isAfter(now.subtract(const Duration(hours: 24)));
 
     return Container(
       decoration: BoxDecoration(
-        color: Color(0xFF131E2E),
+        color: const Color(0xFF131E2E),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -321,7 +499,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.only(
+                  borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(16),
                     bottomLeft: Radius.circular(16),
                   ),
@@ -365,22 +543,22 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                                 ),
                               ),
                             ),
-                            Icon(
+                            const Icon(
                               Icons.arrow_forward_ios,
                               color: Colors.white24,
                               size: 13,
                             ),
                           ],
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.location_on_outlined,
                               color: Colors.white38,
                               size: 13,
                             ),
-                            SizedBox(width: 3),
+                            const SizedBox(width: 3),
                             Flexible(
                               child: Text(
                                 berthName(booking),
@@ -405,7 +583,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                         Text(
                           formatDateTime(booking['from_date']),
                           style: TextStyle(
-                            color: Color(0xFFC9A84C),
+                            color: const Color(0xFFC9A84C),
                             fontSize: isBig ? 14 : 12.5,
                             fontWeight: FontWeight.w500,
                           ),
@@ -421,7 +599,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                         Text(
                           formatDateTime(booking['to_date']),
                           style: TextStyle(
-                            color: Color(0xFFC9A84C),
+                            color: const Color(0xFFC9A84C),
                             fontSize: isBig ? 14 : 12.5,
                             fontWeight: FontWeight.w500,
                           ),
@@ -442,9 +620,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             child: Row(
               children: [
                 buildStatCell(Icons.anchor, 'Berth', berthName(booking), isBig),
-                Container(width: 0.5, height: 32, color: Color(0xFF243044)),
+                Container(
+                  width: 0.5,
+                  height: 32,
+                  color: const Color(0xFF243044),
+                ),
                 buildStatCell(Icons.access_time, 'Duration', duration, isBig),
-                Container(width: 0.5, height: 32, color: Color(0xFF243044)),
+                Container(
+                  width: 0.5,
+                  height: 32,
+                  color: const Color(0xFF243044),
+                ),
                 buildStatCell(
                   Icons.credit_card_outlined,
                   'Total',
@@ -455,6 +641,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             ),
           ),
 
+          // Service orders section
+          buildServiceOrdersSection(isBig),
+
           Padding(
             padding: EdgeInsets.fromLTRB(
               isBig ? 18 : 14,
@@ -464,21 +653,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             ),
             child: Row(
               children: [
-                // buildActionButton(
-                //   label: 'View details',
-                //   color: Color(0xFFC9A84C),
-                //   textColor: Color(0xFFC9A84C),
-                //   outlined: true,
-                //   isBig: isBig,
-                //   onTap: () {},
-                // ),
-
-                // confirmed + upcoming → manage booking
                 if (status == 'confirmed' && from.isAfter(now)) ...[
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   buildActionButton(
                     label: 'View Details',
-                    color: Color(0xFFC9A84C),
+                    color: const Color(0xFFC9A84C),
                     textColor: Colors.black,
                     isBig: isBig,
                     onTap: () async {
@@ -493,25 +672,21 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                     },
                   ),
                 ],
-
-                // confirmed + within 1 hour window → check in
                 if (canCheckIn) ...[
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   buildActionButton(
                     label: 'Check In',
-                    color: Color(0xFF2D7D4F),
+                    color: const Color(0xFF2D7D4F),
                     textColor: Colors.white,
                     isBig: isBig,
                     onTap: () => checkIn(bookingId),
                   ),
                 ],
-
-                // checked_in → check out
                 if (status == 'checked_in') ...[
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   buildActionButton(
                     label: 'Check Out',
-                    color: Color(0xFF1A4A6B),
+                    color: const Color(0xFF1A4A6B),
                     textColor: Colors.white,
                     isBig: isBig,
                     onTap: () => checkOut(bookingId),
@@ -540,7 +715,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.anchor, color: Colors.white12, size: isBig ? 72 : 56),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
               emptyText,
               style: TextStyle(
@@ -569,14 +744,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             ),
             Text(
               '${bookings.length} bookings',
-              style: TextStyle(color: Color(0xFFC9A84C), fontSize: bodySize),
+              style: TextStyle(
+                color: const Color(0xFFC9A84C),
+                fontSize: bodySize,
+              ),
             ),
           ],
         ),
         SizedBox(height: isBig ? 16 : 14),
         ...bookings.map(
           (b) => Padding(
-            padding: EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.only(bottom: 14),
             child: buildCard(b, isBig),
           ),
         ),
@@ -596,7 +774,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     final tabFontSize = isBig ? 14.0 : 12.5;
 
     return Scaffold(
-      backgroundColor: Color(0xFF0A1628),
+      backgroundColor: const Color(0xFF0A1628),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -606,7 +784,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
               children: [
                 Container(
                   padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 16),
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: Color(0xFF0A1628),
                     border: Border(
                       bottom: BorderSide(color: Color(0xFF1A2A3A), width: 0.5),
@@ -633,7 +811,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                                   TextSpan(
                                     text: 'Bookings',
                                     style: TextStyle(
-                                      color: Color(0xFFC9A84C),
+                                      color: const Color(0xFFC9A84C),
                                       fontSize: titleSize,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -641,7 +819,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                                 ],
                               ),
                             ),
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Text(
                               '${bookingsData.length} total reservations',
                               style: TextStyle(
@@ -652,16 +830,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                           ],
                         ),
                       ),
-                      SizedBox(width: 12),
+                      const SizedBox(width: 12),
                       Stack(
                         children: [
                           Container(
-                            padding: EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Color(0xFF131E2E),
+                              color: const Color(0xFF131E2E),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: Color(0xFF243044),
+                                color: const Color(0xFF243044),
                                 width: 0.5,
                               ),
                             ),
@@ -678,14 +856,14 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                               child: Container(
                                 width: 18,
                                 height: 18,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   color: Color(0xFFC9A84C),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Center(
                                   child: Text(
                                     '${upcomingBookings.length}',
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       color: Colors.black,
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -708,14 +886,21 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                       vertical: isBig ? 14 : 12,
                     ),
                     decoration: BoxDecoration(
-                      color: Color(0xFF131E2E),
+                      color: const Color(0xFF131E2E),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Color(0xFF243044), width: 0.5),
+                      border: Border.all(
+                        color: const Color(0xFF243044),
+                        width: 0.5,
+                      ),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.search, color: Colors.white38, size: 20),
-                        SizedBox(width: 10),
+                        const Icon(
+                          Icons.search,
+                          color: Colors.white38,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: TextField(
                             controller: searchController,
@@ -739,20 +924,20 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                     ),
                   ),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
 
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: hPad),
                   child: Container(
                     height: isBig ? 48 : 42,
                     decoration: BoxDecoration(
-                      color: Color(0xFF131E2E),
+                      color: const Color(0xFF131E2E),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: TabBar(
                       controller: tabController,
                       indicator: BoxDecoration(
-                        color: Color(0xFFC9A84C),
+                        color: const Color(0xFFC9A84C),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       indicatorSize: TabBarIndicatorSize.tab,
@@ -764,7 +949,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                       ),
                       unselectedLabelStyle: TextStyle(fontSize: tabFontSize),
                       dividerColor: Colors.transparent,
-                      tabs: [
+                      tabs: const [
                         Tab(text: 'Upcoming'),
                         Tab(text: 'Ongoing'),
                         Tab(text: 'Past'),
@@ -772,11 +957,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                     ),
                   ),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
 
                 Expanded(
                   child: isLoading
-                      ? Center(
+                      ? const Center(
                           child: CircularProgressIndicator(
                             color: Color(0xFFC9A84C),
                           ),

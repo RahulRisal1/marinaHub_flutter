@@ -137,6 +137,67 @@ class _exploreScreenState extends State<exploreScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(0xFF0D1B2A),
+      appBar: AppBar(
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+
+        leading: GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: const Icon(
+              Icons.arrow_back_ios_new,
+              color: Color(0xFFC9A84C),
+              size: 16,
+            ),
+          ),
+        ),
+        actions: [
+          GestureDetector(
+            onTap: () {}, // add map action here if needed
+            child: Container(
+              margin: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A2A3A),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: const Color(0xFFC9A84C).withOpacity(0.4),
+                  width: 0.8,
+                ),
+              ),
+              child: Icon(
+                Icons.map_outlined,
+                color: const Color(0xFFC9A84C),
+                size: isBig ? 24 : 22,
+              ),
+            ),
+          ),
+        ],
+
+        title: RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(
+                text: 'Explore ',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: titleSize,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              TextSpan(
+                text: 'Marinas',
+                style: TextStyle(
+                  color: Color(0xFFC9A84C),
+                  fontSize: titleSize,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
       body: loading
           ? Center(child: CircularProgressIndicator(color: Color(0xFFC9A84C)))
           : SafeArea(
@@ -145,71 +206,70 @@ class _exploreScreenState extends State<exploreScreen> {
                   constraints: BoxConstraints(maxWidth: maxW),
                   child: CustomScrollView(
                     slivers: [
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    RichText(
-                                      text: TextSpan(
-                                        children: [
-                                          TextSpan(
-                                            text: 'Explore ',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: titleSize,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: 'Marinas',
-                                            style: TextStyle(
-                                              color: Color(0xFFC9A84C),
-                                              fontSize: titleSize,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    SizedBox(height: 4),
-                                    Text(
-                                      'Discover premium marinas across Norway',
-                                      style: TextStyle(
-                                        color: Colors.white38,
-                                        fontSize: subtitleSize,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Container(
-                                padding: EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Color(0xFF1A2A3A),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: Color(0xFFC9A84C).withOpacity(0.4),
-                                    width: 0.8,
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.map_outlined,
-                                  color: Color(0xFFC9A84C),
-                                  size: isBig ? 24 : 22,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
+                      // SliverToBoxAdapter(
+                      //   child: Padding(
+                      //     padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),
+                      //     child: Row(
+                      //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      //       children: [
+                      //         Expanded(
+                      //           child: Column(
+                      //             crossAxisAlignment: CrossAxisAlignment.start,
+                      //             children: [
+                      //               RichText(
+                      //                 text: TextSpan(
+                      //                   children: [
+                      //                     TextSpan(
+                      //                       text: 'Explore ',
+                      //                       style: TextStyle(
+                      //                         color: Colors.white,
+                      //                         fontSize: titleSize,
+                      //                         fontWeight: FontWeight.w600,
+                      //                       ),
+                      //                     ),
+                      //                     TextSpan(
+                      //                       text: 'Marinas',
+                      //                       style: TextStyle(
+                      //                         color: Color(0xFFC9A84C),
+                      //                         fontSize: titleSize,
+                      //                         fontWeight: FontWeight.w600,
+                      //                       ),
+                      //                     ),
+                      //                   ],
+                      //                 ),
+                      //               ),
+                      //               SizedBox(height: 4),
+                      //               Text(
+                      //                 'Discover premium marinas across Norway',
+                      //                 style: TextStyle(
+                      //                   color: Colors.white38,
+                      //                   fontSize: subtitleSize,
+                      //                 ),
+                      //               ),
+                      //             ],
+                      //           ),
+                      //         ),
+                      //         SizedBox(width: 12),
+                      //         Container(
+                      //           padding: EdgeInsets.all(12),
+                      //           decoration: BoxDecoration(
+                      //             color: Color(0xFF1A2A3A),
+                      //             borderRadius: BorderRadius.circular(10),
+                      //             border: Border.all(
+                      //               color: Color(0xFFC9A84C).withOpacity(0.4),
+                      //               width: 0.8,
+                      //             ),
+                      //           ),
+                      //           child: Icon(
+                      //             Icons.map_outlined,
+                      //             color: Color(0xFFC9A84C),
+                      //             size: isBig ? 24 : 22,
+                      //           ),
+                      //         ),
+                      //       ],
+                      //     ),
+                      //   ),
+                      // ),
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 0),

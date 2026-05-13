@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:marinahub/maps/maps.dart';
 import 'package:marinahub/more/morePage.dart';
 import 'package:marinahub/screens/bookings/booking.dart';
-import 'package:marinahub/screens/explore/exploreScreen.dart';
 import 'package:marinahub/screens/homePage.dart';
 import 'package:marinahub/screens/service/requestService.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final int initialTab;
+  const DashboardScreen({super.key, this.initialTab = 0});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -14,15 +15,14 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
-  int selectedNav = 0;
-  int _previousNav = 0;
+  late int selectedNav;
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
 
   final List<Widget> screens = [
     HomePage(),
-    exploreScreen(),
+    BoatMapScreen(),
     MyBookingsScreen(),
     requestService(),
     MorePage(),
@@ -31,6 +31,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+    selectedNav = widget.initialTab;
+
     _controller = AnimationController(
       duration: const Duration(milliseconds: 80),
       vsync: this,
@@ -58,10 +60,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _onNavTap(int index) {
     if (index == selectedNav) return;
     _controller.reverse().then((_) {
-      setState(() {
-        _previousNav = selectedNav;
-        selectedNav = index;
-      });
+      setState(() => selectedNav = index);
       _controller.forward();
     });
   }
@@ -102,7 +101,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               icon: Icon(Icons.home_outlined),
               label: 'Home',
             ),
-            BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Explore'),
+            BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Maps'),
             BottomNavigationBarItem(
               icon: Icon(Icons.calendar_today_outlined),
               label: 'Bookings',

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:marinahub/dashboardscreen/dashboardscreen.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:marinahub/dio/myDio.dart';
 
@@ -10,88 +12,168 @@ class requestService extends StatefulWidget {
 }
 
 class _requestServiceState extends State<requestService> {
-  // Theme
   static const Color navy = Color(0xFF0D1421);
   static const Color navyCard = Color(0xFF142238);
-  static const Color navyCardSoft = Color(0xFF1A2940);
   static const Color gold = Color(0xFFD4A95E);
   static const Color textPrimary = Color(0xFFE8EAF0);
   static const Color textSecondary = Color(0xFF8B95A8);
   static const Color divider = Color(0xFF243044);
 
-  final List<Map<String, dynamic>> categories = const [
-    {"key": "all", "label": "All", "icon": Icons.grid_view_rounded},
-    {"key": "fuel", "label": "Fuel", "icon": Icons.local_gas_station},
-    {"key": "cleaning", "label": "Cleaning", "icon": Icons.cleaning_services},
-    {"key": "repairs", "label": "Repairs", "icon": Icons.build},
-    {
-      "key": "provisioning",
-      "label": "Provisioning",
-      "icon": Icons.shopping_basket,
-    },
-  ];
-
-  String selectedCategory = "all";
-  bool loading = true;
-  String? error;
+  List<Map<String, dynamic>> categories = [];
+  String selectedCategory = '';
+  bool loadingCategories = true;
   List<dynamic> services = [];
+  bool loadingServices = false;
+  String? error;
+  Position? userPosition;
 
   @override
   void initState() {
     super.initState();
-    loadServices();
+    _initLocationAndCategories();
   }
 
-  Future<void> loadServices() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
+  Future<void> _initLocationAndCategories() async {
+    await _getLocation();
+    await loadCategories();
+  }
 
+  Future<void> _getLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+      if (permission == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getCurrentPosition();
+      setState(() => userPosition = pos);
+    } catch (_) {}
+  }
+
+  Future<void> loadCategories() async {
+    setState(() => loadingCategories = true);
     try {
       final dio = await MyDio().getDio();
-      final path = selectedCategory == "all"
-          ? "/services"
-          : "/services?category=$selectedCategory";
-
-      final res = await dio.get(path);
-
+      final res = await dio.get('/services/categories');
+      final fetched = List<Map<String, dynamic>>.from(
+        (res.data['categories'] ?? []).map(
+          (c) => {
+            'key': c['key'],
+            'label': _labelFor(c['key']),
+            'icon': _iconFor(c['key']),
+            'unit': c['unit'],
+          },
+        ),
+      );
       setState(() {
-        services = res.data["services"] ?? [];
+        categories = fetched;
+        if (fetched.isNotEmpty) selectedCategory = fetched.first['key'];
       });
+      if (fetched.isNotEmpty) await loadServices(fetched.first['key']);
+    } catch (e) {
+      dioErrorManager(e);
+      setState(() => error = "Couldn't load categories");
+    } finally {
+      setState(() => loadingCategories = false);
+    }
+  }
+
+  Future<void> loadServices(String category) async {
+    setState(() {
+      loadingServices = true;
+      error = null;
+    });
+    try {
+      final dio = await MyDio().getDio();
+      final res = await dio.get('/services/category/$category');
+      List fetched = res.data['services'] ?? [];
+
+      if (userPosition != null) {
+        fetched.sort((a, b) {
+          final distA = Geolocator.distanceBetween(
+            userPosition!.latitude,
+            userPosition!.longitude,
+            (a['marina_latitude'] ?? 0).toDouble(),
+            (a['marina_longitude'] ?? 0).toDouble(),
+          );
+          final distB = Geolocator.distanceBetween(
+            userPosition!.latitude,
+            userPosition!.longitude,
+            (b['marina_latitude'] ?? 0).toDouble(),
+            (b['marina_longitude'] ?? 0).toDouble(),
+          );
+          return distA.compareTo(distB);
+        });
+      }
+
+      setState(() => services = fetched);
     } catch (e) {
       dioErrorManager(e);
       setState(() => error = "Couldn't load services");
     } finally {
-      setState(() => loading = false);
+      setState(() => loadingServices = false);
     }
   }
 
   void onCategoryTap(String key) {
     if (selectedCategory == key) return;
     setState(() => selectedCategory = key);
-    loadServices();
+    loadServices(key);
   }
 
-  void openServiceSheet(Map<String, dynamic> service) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ServiceRequestSheet(service: service),
+  String getDistance(dynamic service) {
+    if (userPosition == null) return service['marina_location'] ?? '';
+    final lat = (service['marina_latitude'] ?? 0).toDouble();
+    final lng = (service['marina_longitude'] ?? 0).toDouble();
+    if (lat == 0 && lng == 0) return service['marina_location'] ?? '';
+    final meters = Geolocator.distanceBetween(
+      userPosition!.latitude,
+      userPosition!.longitude,
+      lat,
+      lng,
     );
+    final distStr = meters < 1000
+        ? '${meters.toStringAsFixed(0)} m'
+        : '${(meters / 1000).toStringAsFixed(1)} km';
+    return '$distStr away';
   }
 
-  IconData iconForCategory(String? category) {
-    switch (category) {
-      case "fuel":
+  String _labelFor(String key) {
+    const labels = {
+      'fuel': 'Fuel',
+      'cleaning': 'Cleaning',
+      'repairs': 'Repairs',
+      'maintenance': 'Maintenance',
+      'provisioning': 'Provisioning',
+      'waste_disposal': 'Waste',
+      'electricity': 'Electricity',
+      'water': 'Water',
+      'other': 'Other',
+    };
+    return labels[key] ?? key[0].toUpperCase() + key.substring(1);
+  }
+
+  IconData _iconFor(String? key) {
+    switch (key) {
+      case 'fuel':
         return Icons.local_gas_station;
-      case "cleaning":
+      case 'cleaning':
         return Icons.cleaning_services;
-      case "repairs":
+      case 'repairs':
         return Icons.build;
-      case "provisioning":
+      case 'maintenance':
+        return Icons.handyman;
+      case 'provisioning':
         return Icons.shopping_basket;
+      case 'waste_disposal':
+        return Icons.delete_outline;
+      case 'electricity':
+        return Icons.bolt;
+      case 'water':
+        return Icons.water_drop;
       default:
         return Icons.miscellaneous_services;
     }
@@ -103,48 +185,51 @@ class _requestServiceState extends State<requestService> {
       backgroundColor: navy,
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            buildHeader(),
-            buildCategoryStrip(),
-            const SizedBox(height: 4),
-            Expanded(child: buildBody()),
+            _buildHeader(),
+            if (loadingCategories)
+              const Expanded(
+                child: Center(child: CircularProgressIndicator(color: gold)),
+              )
+            else ...[
+              _buildCategoryStrip(),
+              const SizedBox(height: 4),
+              Expanded(child: _buildBody()),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget buildHeader() {
+  Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Row(
-        children: [
-          RichText(
-            text: const TextSpan(
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w800,
-                height: 1.1,
-                letterSpacing: -0.3,
-              ),
-              children: [
-                TextSpan(
-                  text: "Request ",
-                  style: TextStyle(color: textPrimary),
-                ),
-                TextSpan(
-                  text: "Service",
-                  style: TextStyle(color: gold),
-                ),
-              ],
-            ),
+      child: RichText(
+        text: const TextSpan(
+          style: TextStyle(
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            height: 1.1,
+            letterSpacing: -0.3,
           ),
-        ],
+          children: [
+            TextSpan(
+              text: 'Request ',
+              style: TextStyle(color: textPrimary),
+            ),
+            TextSpan(
+              text: 'Service',
+              style: TextStyle(color: gold),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget buildCategoryStrip() {
+  Widget _buildCategoryStrip() {
     return SizedBox(
       height: 88,
       child: ListView.builder(
@@ -153,11 +238,11 @@ class _requestServiceState extends State<requestService> {
         itemCount: categories.length,
         itemBuilder: (_, i) {
           final cat = categories[i];
-          final selected = selectedCategory == cat["key"];
+          final selected = selectedCategory == cat['key'];
           return Padding(
             padding: const EdgeInsets.only(right: 10),
             child: GestureDetector(
-              onTap: () => onCategoryTap(cat["key"]),
+              onTap: () => onCategoryTap(cat['key']),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 width: 78,
@@ -173,13 +258,13 @@ class _requestServiceState extends State<requestService> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      cat["icon"],
+                      cat['icon'] as IconData,
                       color: selected ? navy : textPrimary,
                       size: 22,
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      cat["label"],
+                      cat['label'],
                       style: TextStyle(
                         color: selected ? navy : textSecondary,
                         fontSize: 11,
@@ -198,10 +283,9 @@ class _requestServiceState extends State<requestService> {
     );
   }
 
-  Widget buildBody() {
-    if (loading) {
+  Widget _buildBody() {
+    if (loadingServices)
       return const Center(child: CircularProgressIndicator(color: gold));
-    }
     if (error != null) {
       return Center(
         child: Padding(
@@ -212,23 +296,17 @@ class _requestServiceState extends State<requestService> {
               const Icon(Icons.error_outline, color: textSecondary, size: 36),
               const SizedBox(height: 8),
               Text(
-                "Couldn't load services",
-                style: TextStyle(color: textPrimary, fontSize: 15),
-              ),
-              const SizedBox(height: 4),
-              Text(
                 error!,
-                style: const TextStyle(color: textSecondary, fontSize: 12),
-                textAlign: TextAlign.center,
+                style: const TextStyle(color: textPrimary, fontSize: 15),
               ),
               const SizedBox(height: 14),
               OutlinedButton(
-                onPressed: loadServices,
+                onPressed: () => loadServices(selectedCategory),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: gold),
                   foregroundColor: gold,
                 ),
-                child: const Text("Retry"),
+                child: const Text('Retry'),
               ),
             ],
           ),
@@ -236,19 +314,19 @@ class _requestServiceState extends State<requestService> {
       );
     }
     if (services.isEmpty) {
-      return Center(
+      return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: const [
+          children: [
             Icon(Icons.search_off, color: textSecondary, size: 40),
             SizedBox(height: 8),
             Text(
-              "No services available",
+              'No services available',
               style: TextStyle(color: textPrimary, fontSize: 15),
             ),
             SizedBox(height: 4),
             Text(
-              "Try a different category",
+              'Try a different category',
               style: TextStyle(color: textSecondary, fontSize: 12),
             ),
           ],
@@ -259,18 +337,19 @@ class _requestServiceState extends State<requestService> {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
       itemCount: services.length,
-      itemBuilder: (_, i) => buildServiceCard(services[i]),
+      itemBuilder: (_, i) => _buildServiceCard(services[i]),
     );
   }
 
-  Widget buildServiceCard(Map<String, dynamic> service) {
-    final name = service["name"] ?? "";
-    final description = service["description"] ?? "";
-    final price = (service["price_per_unit"] ?? 0).toString();
-    final currency = service["currency"] ?? "NOK";
-    final unit = service["unit"] ?? "";
-    final eta = service["estimated_minutes"];
-    final category = service["category"];
+  Widget _buildServiceCard(Map<String, dynamic> service) {
+    final name = service['name'] ?? '';
+    final price = (service['price_per_unit'] ?? 0).toString();
+    final currency = service['currency'] ?? 'NOK';
+    final unit = service['unit'] ?? '';
+    final eta = service['estimated_minutes'];
+    final marinaName = service['marina_name'] ?? '';
+    final category = service['category'];
+    final distance = getDistance(service);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -279,7 +358,14 @@ class _requestServiceState extends State<requestService> {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => openServiceSheet(service),
+          onTap: () {
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _ServiceRequestSheet(service: service),
+            );
+          },
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
@@ -289,10 +375,10 @@ class _requestServiceState extends State<requestService> {
                   width: 46,
                   height: 46,
                   decoration: BoxDecoration(
-                    color: navyCardSoft,
+                    color: const Color(0xFF1A2940),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(iconForCategory(category), color: gold, size: 22),
+                  child: Icon(_iconFor(category), color: gold, size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -307,24 +393,47 @@ class _requestServiceState extends State<requestService> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (description.toString().isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: textSecondary,
-                            fontSize: 12,
-                            height: 1.3,
-                          ),
+                      if (marinaName.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.anchor,
+                              color: textSecondary,
+                              size: 12,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              marinaName,
+                              style: const TextStyle(
+                                color: textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                            if (distance.isNotEmpty) ...[
+                              const Text(
+                                ' · ',
+                                style: TextStyle(
+                                  color: textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                distance,
+                                style: const TextStyle(
+                                  color: textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Text(
-                            "$price $currency${unit.isNotEmpty ? " / $unit" : ""}",
+                            '$price $currency${unit.isNotEmpty ? ' / $unit' : ''}',
                             style: const TextStyle(
                               color: gold,
                               fontSize: 13,
@@ -340,7 +449,7 @@ class _requestServiceState extends State<requestService> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              "~$eta min",
+                              '~$eta min',
                               style: const TextStyle(
                                 color: textSecondary,
                                 fontSize: 11,
@@ -362,9 +471,9 @@ class _requestServiceState extends State<requestService> {
   }
 }
 
-/// ----------------------------------------------------------------
-/// Bottom sheet — request form for the selected service
-/// ----------------------------------------------------------------
+// ─────────────────────────────────────────────────────────
+// Bottom sheet — request form
+// ─────────────────────────────────────────────────────────
 class _ServiceRequestSheet extends StatefulWidget {
   final Map<String, dynamic> service;
   const _ServiceRequestSheet({required this.service});
@@ -383,19 +492,22 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
   static const Color divider = Color(0xFF243044);
 
   double quantity = 1;
-  String timing = "asap"; // asap | scheduled
+  String timing = 'asap';
+  bool submitting = false;
   final TextEditingController notesController = TextEditingController();
 
-  double get pricePerUnit => (widget.service["price_per_unit"] ?? 0).toDouble();
-  String get currency => widget.service["currency"] ?? "NOK";
-  String get unit => widget.service["unit"] ?? "";
+  double get pricePerUnit => (widget.service['price_per_unit'] ?? 0).toDouble();
+  String get currency => widget.service['currency'] ?? 'NOK';
+  String get unit => widget.service['unit'] ?? '';
   double get total => quantity * pricePerUnit;
+  String get serviceId => widget.service['service_id'] ?? '';
+  String get marinaId => widget.service['marina_id'] ?? '';
 
-  // Quick-amount chips — only meaningful for measurable units
   List<double> get quickAmounts {
     final u = unit.toLowerCase();
-    if (u == "l" || u == "liter" || u == "liters") return [50, 100, 200, 300];
-    if (u == "kg") return [5, 10, 20];
+    if (u == 'l' || u == 'liter' || u == 'liters') return [50, 100, 200, 300];
+    if (u == 'kwh') return [10, 20, 50, 100];
+    if (u == 'kg') return [5, 10, 20];
     return [1, 2, 5, 10];
   }
 
@@ -403,6 +515,65 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
   void dispose() {
     notesController.dispose();
     super.dispose();
+  }
+
+  Future<void> submitOrder() async {
+    setState(() => submitting = true);
+    try {
+      final dio = await MyDio().getDio();
+      await dio.post(
+        '/services/order',
+        data: {
+          'service_id': serviceId,
+          'marina_id': marinaId,
+          'quantity': quantity,
+          'notes': notesController.text.trim().isEmpty
+              ? null
+              : notesController.text.trim(),
+          'requested_time': timing,
+          'scheduled_at': null,
+        },
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // close sheet
+
+        // Navigate to Bookings tab (index 2)
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => DashboardScreen(initialTab: 2),
+            transitionDuration: const Duration(milliseconds: 400),
+            transitionsBuilder: (_, anim, __, child) {
+              return FadeTransition(opacity: anim, child: child);
+            },
+          ),
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: gold, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Service requested — ${total.toStringAsFixed(0)} $currency',
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1A2940),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      dioErrorManager(e);
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
   }
 
   @override
@@ -421,7 +592,6 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
         ),
         child: Column(
           children: [
-            // Drag handle
             Container(
               margin: const EdgeInsets.only(top: 10, bottom: 6),
               width: 40,
@@ -438,35 +608,37 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    buildHeader(),
+                    _buildSheetHeader(),
                     const SizedBox(height: 20),
-                    buildSectionLabel("Quantity"),
+                    _buildSectionLabel('Quantity'),
                     const SizedBox(height: 10),
-                    buildQuantityRow(),
+                    _buildQuantityRow(),
                     const SizedBox(height: 12),
-                    buildQuickAmounts(),
+                    _buildQuickAmounts(),
                     const SizedBox(height: 20),
-                    buildSectionLabel("Timing"),
+                    _buildSectionLabel('Timing'),
                     const SizedBox(height: 10),
-                    buildTimingToggle(),
+                    _buildTimingToggle(),
                     const SizedBox(height: 20),
-                    buildSectionLabel("Notes (optional)"),
+                    _buildSectionLabel('Notes (optional)'),
                     const SizedBox(height: 10),
-                    buildNotesField(),
+                    _buildNotesField(),
                   ],
                 ),
               ),
             ),
-            buildBottomBar(),
+            _buildBottomBar(),
           ],
         ),
       ),
     );
   }
 
-  Widget buildHeader() {
-    final name = widget.service["name"] ?? "";
-    final description = widget.service["description"] ?? "";
+  Widget _buildSheetHeader() {
+    final name = widget.service['name'] ?? '';
+    final description = widget.service['description'] ?? '';
+    final marinaName = widget.service['marina_name'] ?? '';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -478,6 +650,19 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
             fontWeight: FontWeight.w700,
           ),
         ),
+        if (marinaName.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.anchor, color: textSecondary, size: 13),
+              const SizedBox(width: 4),
+              Text(
+                marinaName,
+                style: const TextStyle(color: textSecondary, fontSize: 13),
+              ),
+            ],
+          ),
+        ],
         if (description.toString().isNotEmpty) ...[
           const SizedBox(height: 6),
           Text(
@@ -498,7 +683,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
             border: Border.all(color: gold.withOpacity(0.35)),
           ),
           child: Text(
-            "$pricePerUnit $currency${unit.isNotEmpty ? " / $unit" : ""}",
+            '$pricePerUnit $currency${unit.isNotEmpty ? ' / $unit' : ''}',
             style: const TextStyle(
               color: gold,
               fontSize: 12,
@@ -510,7 +695,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     );
   }
 
-  Widget buildSectionLabel(String text) => Text(
+  Widget _buildSectionLabel(String text) => Text(
     text,
     style: const TextStyle(
       color: textSecondary,
@@ -520,7 +705,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     ),
   );
 
-  Widget buildQuantityRow() {
+  Widget _buildQuantityRow() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
@@ -529,12 +714,12 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
       ),
       child: Row(
         children: [
-          quantityButton(Icons.remove, () {
+          _quantityButton(Icons.remove, () {
             if (quantity > 1) setState(() => quantity -= 1);
           }),
           Expanded(
             child: Text(
-              "${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 1)}${unit.isNotEmpty ? " $unit" : ""}",
+              '${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 1)}${unit.isNotEmpty ? ' $unit' : ''}',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: textPrimary,
@@ -543,15 +728,13 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
               ),
             ),
           ),
-          quantityButton(Icons.add, () {
-            setState(() => quantity += 1);
-          }),
+          _quantityButton(Icons.add, () => setState(() => quantity += 1)),
         ],
       ),
     );
   }
 
-  Widget quantityButton(IconData icon, VoidCallback onTap) {
+  Widget _quantityButton(IconData icon, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
@@ -567,7 +750,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     );
   }
 
-  Widget buildQuickAmounts() {
+  Widget _buildQuickAmounts() {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -583,7 +766,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
               border: Border.all(color: isSelected ? gold : divider),
             ),
             child: Text(
-              "${amt.toStringAsFixed(0)}${unit.isNotEmpty ? " $unit" : ""}",
+              '${amt.toStringAsFixed(0)}${unit.isNotEmpty ? ' $unit' : ''}',
               style: TextStyle(
                 color: isSelected ? navy : textSecondary,
                 fontSize: 12,
@@ -596,7 +779,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     );
   }
 
-  Widget buildTimingToggle() {
+  Widget _buildTimingToggle() {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -605,14 +788,14 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
       ),
       child: Row(
         children: [
-          timingOption("asap", "As soon as possible", Icons.bolt),
-          timingOption("scheduled", "Schedule for later", Icons.event),
+          _timingOption('asap', 'As soon as possible', Icons.bolt),
+          _timingOption('scheduled', 'Schedule for later', Icons.event),
         ],
       ),
     );
   }
 
-  Widget timingOption(String key, String label, IconData icon) {
+  Widget _timingOption(String key, String label, IconData icon) {
     final selected = timing == key;
     return Expanded(
       child: GestureDetector(
@@ -644,7 +827,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     );
   }
 
-  Widget buildNotesField() {
+  Widget _buildNotesField() {
     return Container(
       decoration: BoxDecoration(
         color: navyCard,
@@ -655,7 +838,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
         style: const TextStyle(color: textPrimary, fontSize: 14),
         maxLines: 3,
         decoration: const InputDecoration(
-          hintText: "e.g. diesel, port side tank",
+          hintText: 'e.g. diesel, port side tank',
           hintStyle: TextStyle(color: textSecondary, fontSize: 13),
           border: InputBorder.none,
           contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -664,7 +847,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     );
   }
 
-  Widget buildBottomBar() {
+  Widget _buildBottomBar() {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
       decoration: const BoxDecoration(
@@ -679,11 +862,11 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  "Total",
+                  'Total',
                   style: TextStyle(color: textSecondary, fontSize: 11),
                 ),
                 Text(
-                  "${total.toStringAsFixed(0)} $currency",
+                  '${total.toStringAsFixed(0)} $currency',
                   style: const TextStyle(
                     color: textPrimary,
                     fontSize: 20,
@@ -694,19 +877,11 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
             ),
             const Spacer(),
             ElevatedButton(
-              onPressed: () {
-                // TODO: POST /service-orders when backend is ready
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Service requested"),
-                    backgroundColor: Color(0xFF1A2940),
-                  ),
-                );
-              },
+              onPressed: submitting ? null : submitOrder,
               style: ElevatedButton.styleFrom(
                 backgroundColor: gold,
                 foregroundColor: navy,
+                disabledBackgroundColor: gold.withOpacity(0.5),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 14,
@@ -715,10 +890,22 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text(
-                "Request Service",
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-              ),
+              child: submitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF0D1421),
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Request Service',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
             ),
           ],
         ),

@@ -4,6 +4,7 @@ import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:marinahub/provider/userProvider.dart';
 import 'package:marinahub/screens/explore/detailExplore.dart';
+import 'package:marinahub/screens/explore/exploreScreen.dart';
 import 'package:provider/provider.dart';
 
 class HomePage extends StatefulWidget {
@@ -16,7 +17,11 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool loading = false;
   List marinas = [];
+  List allMarinas = [];
+  List filteredMarinas = [];
   Position? userPosition;
+  final TextEditingController _searchController = TextEditingController();
+  bool isSearching = false;
 
   double get w => MediaQuery.of(context).size.width;
   bool get isTablet => w >= 600 && w < 1000;
@@ -47,20 +52,44 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     initLocationAndMarinas();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      if (query.isEmpty) {
+        filteredMarinas = marinas; // back to top 2
+        isSearching = false;
+      } else {
+        isSearching = true;
+        filteredMarinas = allMarinas.where((m) {
+          // search ALL
+          final name = (m['name'] ?? '').toLowerCase();
+          final location = (m['location'] ?? '').toLowerCase();
+          return name.contains(query) || location.contains(query);
+        }).toList();
+      }
+    });
   }
 
   String getGreeting() {
     final hour = DateTime.now().hour;
-
-    if (hour < 12) {
+    if (hour < 12)
       return "Good morning,";
-    } else if (hour < 17) {
+    else if (hour < 17)
       return "Good afternoon,";
-    } else if (hour < 21) {
+    else if (hour < 21)
       return "Good evening,";
-    } else {
+    else
       return "Good night,";
-    }
   }
 
   Future<void> initLocationAndMarinas() async {
@@ -103,7 +132,11 @@ class _HomePageState extends State<HomePage> {
           return distA.compareTo(distB);
         });
       }
-      setState(() => marinas = fetched.take(2).toList());
+      setState(() {
+        allMarinas = fetched; // full list
+        marinas = fetched.take(2).toList(); // top 2 nearby
+        filteredMarinas = marinas;
+      });
     } catch (e) {
       dioErrorManager(e);
     } finally {
@@ -247,13 +280,14 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                   SizedBox(height: isTabletOrUp ? 28 : 20),
+                                  // SEARCH BAR
                                   Row(
                                     children: [
                                       Expanded(
                                         child: Container(
                                           padding: EdgeInsets.symmetric(
                                             horizontal: 16,
-                                            vertical: isTabletOrUp ? 16 : 12,
+                                            vertical: isTabletOrUp ? 4 : 2,
                                           ),
                                           decoration: BoxDecoration(
                                             color: Colors.white,
@@ -269,15 +303,48 @@ class _HomePageState extends State<HomePage> {
                                                 size: 20,
                                               ),
                                               SizedBox(width: 8),
-                                              Text(
-                                                'Search marina, location or region',
-                                                style: TextStyle(
-                                                  color: Colors.grey,
-                                                  fontSize: isTabletOrUp
-                                                      ? 14
-                                                      : 13,
+                                              Expanded(
+                                                child: TextField(
+                                                  controller: _searchController,
+                                                  style: TextStyle(
+                                                    color: Colors.black87,
+                                                    fontSize: isTabletOrUp
+                                                        ? 14
+                                                        : 13,
+                                                  ),
+                                                  decoration: InputDecoration(
+                                                    hintText:
+                                                        'Search marina, location or region',
+                                                    hintStyle: TextStyle(
+                                                      color: Colors.grey,
+                                                      fontSize: isTabletOrUp
+                                                          ? 14
+                                                          : 13,
+                                                    ),
+                                                    border: InputBorder.none,
+                                                    isDense: true,
+                                                    contentPadding:
+                                                        EdgeInsets.symmetric(
+                                                          vertical: isTabletOrUp
+                                                              ? 14
+                                                              : 12,
+                                                        ),
+                                                  ),
                                                 ),
                                               ),
+                                              if (_searchController
+                                                  .text
+                                                  .isNotEmpty)
+                                                GestureDetector(
+                                                  onTap: () {
+                                                    _searchController.clear();
+                                                  },
+                                                  child: Icon(
+                                                    Icons.clear,
+                                                    color: Colors.grey,
+                                                    size: 18,
+                                                  ),
+                                                ),
                                             ],
                                           ),
                                         ),
@@ -308,6 +375,8 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                     ),
+
+                    // SEARCH RESULTS HEADER or NEARBY MARINAS header
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 12),
@@ -315,34 +384,103 @@ class _HomePageState extends State<HomePage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Nearby Marinas',
+                              isSearching
+                                  ? '${filteredMarinas.length} result${filteredMarinas.length == 1 ? '' : 's'} found'
+                                  : 'Nearby Marinas',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: isTabletOrUp ? 20 : 18,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            Row(
-                              children: [
-                                Text(
-                                  'See all',
-                                  style: TextStyle(
-                                    color: Color(0xFFC9A84C),
-                                    fontSize: isTabletOrUp ? 14 : 13,
+                            if (!isSearching)
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => exploreScreen(),
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                      0xFFC9A84C,
+                                    ).withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(5),
+                                    border: Border.all(
+                                      color: const Color(
+                                        0xFFC9A84C,
+                                      ).withOpacity(0.4),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        'ALL MARINAS',
+                                        style: TextStyle(
+                                          color: Color(0xFFC9A84C),
+                                          fontSize: isTabletOrUp ? 14 : 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      SizedBox(width: 4),
+                                      Icon(
+                                        Icons.arrow_forward,
+                                        color: Color(0xFFC9A84C),
+                                        size: 16,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                SizedBox(width: 4),
-                                Icon(
-                                  Icons.arrow_forward,
-                                  color: Color(0xFFC9A84C),
-                                  size: 16,
-                                ),
-                              ],
-                            ),
+                              ),
                           ],
                         ),
                       ),
                     ),
+
+                    // NO RESULTS
+                    if (isSearching && filteredMarinas.isEmpty)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: hPad,
+                            vertical: 40,
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.anchor,
+                                color: Colors.white24,
+                                size: 48,
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                'No marinas found',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Try a different name or location',
+                                style: TextStyle(
+                                  color: Colors.white24,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    // MARINA GRID
                     SliverPadding(
                       padding: EdgeInsets.symmetric(horizontal: hPad),
                       sliver: SliverGrid(
@@ -357,7 +495,7 @@ class _HomePageState extends State<HomePage> {
                               : 1.25,
                         ),
                         delegate: SliverChildBuilderDelegate((context, index) {
-                          final marina = marinas[index];
+                          final marina = filteredMarinas[index];
                           final isAvailable = index % 2 == 0;
                           return GestureDetector(
                             onTap: () {
@@ -409,8 +547,7 @@ class _HomePageState extends State<HomePage> {
                                               borderRadius:
                                                   BorderRadius.circular(20),
                                             ),
-                                            child: // in your marina card
-                                            Row(
+                                            child: Row(
                                               children: [
                                                 Icon(
                                                   Icons.anchor,
@@ -493,7 +630,9 @@ class _HomePageState extends State<HomePage> {
                                               ),
                                             ),
                                             Text(
-                                              '750 NOK',
+                                              marina['cheapestPrice'] != null
+                                                  ? '${marina['cheapestPrice']} NOK'
+                                                  : 'N/A',
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontSize: isTabletOrUp
@@ -511,7 +650,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                           );
-                        }, childCount: marinas.length),
+                        }, childCount: filteredMarinas.length),
                       ),
                     ),
                     SliverToBoxAdapter(child: SizedBox(height: 80)),
