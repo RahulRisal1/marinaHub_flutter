@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:marinahub/dashboardscreen/dashboardscreen.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:dio/dio.dart';
+import 'package:marinahub/screens/bookings/booking.dart';
 
 class DetailMarinas extends StatefulWidget {
   final Map marina;
@@ -337,6 +339,10 @@ class _DetailMarinasState extends State<DetailMarinas>
             borderRadius: BorderRadius.circular(12),
           ),
         ),
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DashboardScreen(initialTab: 2)),
       );
       loadBerths();
     } catch (e) {
