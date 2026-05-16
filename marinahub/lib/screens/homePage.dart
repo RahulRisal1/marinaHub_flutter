@@ -3,7 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:marinahub/provider/userProvider.dart';
-import 'package:marinahub/screens/explore/detailExplore.dart';
+import 'package:marinahub/screens/explore/detailMarinas.dart';
 import 'package:marinahub/screens/explore/exploreScreen.dart';
 import 'package:provider/provider.dart';
 
@@ -265,7 +265,10 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                   Text(
-                                    userProvider.userData?["name"] ?? "Captain",
+                                    userProvider.userData?["name"]
+                                            .toString()
+                                            .toUpperCase() ??
+                                        "Captain",
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: isTabletOrUp ? 40 : 30,
@@ -496,7 +499,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         delegate: SliverChildBuilderDelegate((context, index) {
                           final marina = filteredMarinas[index];
-                          final isAvailable = index % 2 == 0;
+
                           return GestureDetector(
                             onTap: () {
                               Navigator.push(
@@ -541,9 +544,7 @@ class _HomePageState extends State<HomePage> {
                                               vertical: 5,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: isAvailable
-                                                  ? Color(0xFF2D7D4F)
-                                                  : Color(0xFFC4793A),
+                                              color: Color(0xFF2D7D4F),
                                               borderRadius:
                                                   BorderRadius.circular(20),
                                             ),

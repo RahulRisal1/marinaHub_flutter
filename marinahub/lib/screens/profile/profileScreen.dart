@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:marinahub/utils/colors.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:marinahub/auth/loginScreen.dart';
@@ -12,14 +13,6 @@ class profileScreen extends StatefulWidget {
 }
 
 class profileScreenState extends State<profileScreen> {
-  static const Color navy = Color(0xFF0B1A2E);
-  static const Color navyCard = Color(0xFF13243B);
-  static const Color gold = Color(0xFFD4A857);
-  static const Color textPrimary = Colors.white;
-  static const Color textSecondary = Color(0xFF8A99B0);
-  static const Color danger = Color(0xFFE25C5C);
-  static const Color divider = Color(0xFF1E3050);
-
   static const String avatarAsset = 'assets/images/logo.gif';
 
   @override
@@ -42,7 +35,17 @@ class profileScreenState extends State<profileScreen> {
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
-        title: const Text(
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: textPrimary,
+                  size: 20,
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
+        title: Text(
           'Profile',
           style: TextStyle(
             color: textPrimary,
@@ -52,7 +55,7 @@ class profileScreenState extends State<profileScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings_outlined, color: textPrimary),
+            icon: Icon(Icons.settings_outlined, color: textPrimary),
             onPressed: () {},
           ),
         ],

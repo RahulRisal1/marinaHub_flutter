@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
-import 'package:marinahub/screens/explore/detailExplore.dart';
+import 'package:marinahub/screens/explore/detailMarinas.dart';
 
 class exploreScreen extends StatefulWidget {
   const exploreScreen({super.key});
@@ -19,7 +19,7 @@ class _exploreScreenState extends State<exploreScreen> {
   String searchQuery = '';
   Position? userPosition;
 
-  List<String> filters = ['All', 'Nearby', 'Available', 'Almost Full'];
+  List<String> filters = ['All', 'Nearby', 'Has Berths', 'A → Z'];
 
   List<double> ratings = [4.8, 4.7, 4.6, 4.5, 4.9];
   List<int> reviews = [126, 89, 72, 54, 143];
@@ -116,13 +116,18 @@ class _exploreScreenState extends State<exploreScreen> {
     }).toList();
 
     if (selectedFilter == 1) {
-      // Nearby — sort by distance and take within 50km
       result.sort((a, b) => getDistanceInKm(a).compareTo(getDistanceInKm(b)));
       result = result.where((m) => getDistanceInKm(m) <= 50).toList();
     } else if (selectedFilter == 2) {
-      result = result.where((m) => result.indexOf(m) % 2 == 0).toList();
+      result = result
+          .where((m) => ((m['totalBerths'] ?? 0) as num) > 0)
+          .toList();
     } else if (selectedFilter == 3) {
-      result = result.where((m) => result.indexOf(m) % 2 != 0).toList();
+      result.sort(
+        (a, b) => (a['name'] ?? '').toString().compareTo(
+          (b['name'] ?? '').toString(),
+        ),
+      );
     }
 
     setState(() => filteredMarinas = result);
@@ -174,27 +179,12 @@ class _exploreScreenState extends State<exploreScreen> {
             ),
           ),
         ],
-
-        title: RichText(
-          text: TextSpan(
-            children: [
-              TextSpan(
-                text: 'Explore ',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: titleSize,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              TextSpan(
-                text: 'Marinas',
-                style: TextStyle(
-                  color: Color(0xFFC9A84C),
-                  fontSize: titleSize,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+        title: Text(
+          "Explore Marinas",
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
@@ -318,8 +308,8 @@ class _exploreScreenState extends State<exploreScreen> {
                                 final icons = [
                                   Icons.grid_view_rounded,
                                   Icons.location_on_outlined,
-                                  Icons.check_circle_outline,
-                                  Icons.warning_amber_outlined,
+                                  Icons.anchor,
+                                  Icons.sort_by_alpha,
                                 ];
                                 return GestureDetector(
                                   onTap: () => onFilterTap(i),
@@ -458,13 +448,6 @@ class _exploreScreenState extends State<exploreScreen> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              Text(
-                                'View all',
-                                style: TextStyle(
-                                  color: Color(0xFFC9A84C),
-                                  fontSize: bodySize,
-                                ),
-                              ),
                             ],
                           ),
                         ),
@@ -478,6 +461,8 @@ class _exploreScreenState extends State<exploreScreen> {
                                   child: Text(
                                     selectedFilter == 1
                                         ? 'No marinas within 50 km'
+                                        : selectedFilter == 2
+                                        ? 'No marinas with available berths'
                                         : 'No marinas found',
                                     style: TextStyle(
                                       color: Colors.white38,
@@ -502,7 +487,7 @@ class _exploreScreenState extends State<exploreScreen> {
                                   index,
                                 ) {
                                   final marina = filteredMarinas[index];
-                                  final isAvailable = index % 2 == 0;
+                                  // final isAvailable = index % 2 == 0;
                                   final rating =
                                       ratings[index % ratings.length];
                                   final review =
@@ -597,33 +582,36 @@ class _exploreScreenState extends State<exploreScreen> {
                                                       Container(
                                                         padding:
                                                             EdgeInsets.symmetric(
-                                                              horizontal: 8,
-                                                              vertical: 3,
+                                                              horizontal: 10,
+                                                              vertical: 5,
                                                             ),
                                                         decoration: BoxDecoration(
-                                                          color: isAvailable
-                                                              ? Color(
-                                                                  0xFF2D7D4F,
-                                                                )
-                                                              : Color(
-                                                                  0xFFC4793A,
-                                                                ),
+                                                          color: Color(
+                                                            0xFF2D7D4F,
+                                                          ),
                                                           borderRadius:
                                                               BorderRadius.circular(
                                                                 20,
                                                               ),
                                                         ),
-                                                        child: Text(
-                                                          isAvailable
-                                                              ? 'Available'
-                                                              : 'Almost full',
-                                                          style: TextStyle(
-                                                            color: Colors.white,
-                                                            fontSize:
-                                                                smallSize - 1,
-                                                            fontWeight:
-                                                                FontWeight.w500,
-                                                          ),
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons.anchor,
+                                                              color: Colors
+                                                                  .white38,
+                                                              size: 13,
+                                                            ),
+                                                            SizedBox(width: 4),
+                                                            Text(
+                                                              '${marina['totalBerths'] ?? 0} berth${(marina['totalBerths'] ?? 0) == 1 ? '' : 's'}',
+                                                              style: TextStyle(
+                                                                color: Colors
+                                                                    .white,
+                                                                fontSize: 12,
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
                                                       ),
                                                     ],
@@ -680,23 +668,26 @@ class _exploreScreenState extends State<exploreScreen> {
                                                     textBaseline:
                                                         TextBaseline.alphabetic,
                                                     children: [
-                                                      Text(
-                                                        'From',
-                                                        style: TextStyle(
-                                                          color: Colors.white38,
-                                                          fontSize:
-                                                              smallSize - 1,
-                                                        ),
-                                                      ),
-                                                      SizedBox(width: 6),
-                                                      Text(
-                                                        '750 NOK',
-                                                        style: TextStyle(
-                                                          color: Colors.white,
-                                                          fontSize: priceSize,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
+                                                      Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .end,
+                                                        children: [
+                                                          Text(
+                                                            marina['cheapestPrice'] !=
+                                                                    null
+                                                                ? ' From ${marina['cheapestPrice']} NOK'
+                                                                : 'N/A',
+                                                            style: TextStyle(
+                                                              color:
+                                                                  Colors.white,
+                                                              fontSize: 15,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ),
                                                     ],
                                                   ),

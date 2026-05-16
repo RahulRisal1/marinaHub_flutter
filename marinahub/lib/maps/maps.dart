@@ -3,7 +3,7 @@ import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
-import 'package:marinahub/screens/explore/detailExplore.dart';
+import 'package:marinahub/screens/explore/detailMarinas.dart';
 
 class BoatMapScreen extends StatefulWidget {
   const BoatMapScreen({super.key});

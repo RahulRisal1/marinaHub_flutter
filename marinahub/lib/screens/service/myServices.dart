@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:marinahub/dio/myDio.dart';
+import 'package:marinahub/utils/colors.dart';
 
 class MyServiceOrdersScreen extends StatefulWidget {
   const MyServiceOrdersScreen({super.key});
@@ -11,14 +12,6 @@ class MyServiceOrdersScreen extends StatefulWidget {
 
 class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
     with SingleTickerProviderStateMixin {
-  static const Color navy = Color(0xFF0A1628);
-  static const Color navyCard = Color(0xFF131E2E);
-  static const Color navyCardSoft = Color(0xFF1A2940);
-  static const Color gold = Color(0xFFC9A84C);
-  static const Color textPrimary = Color(0xFFE8EAF0);
-  static const Color textSecondary = Color(0xFF8B95A8);
-  static const Color dividerColor = Color(0xFF243044);
-
   late TabController tabController;
   bool isLoading = false;
   List<dynamic> allOrders = [];
@@ -106,7 +99,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
   String statusLabel(String status) {
     switch (status) {
       case 'pending':
-        return 'Pending';
+        return 'Waiting Approval';
       case 'accepted':
         return 'Accepted';
       case 'in_progress':
@@ -190,7 +183,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
       decoration: BoxDecoration(
         color: navyCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: dividerColor, width: 0.5),
+        border: Border.all(color: divider, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,7 +204,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
                   decoration: BoxDecoration(
                     color: navyCardSoft,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: dividerColor, width: 0.5),
+                    border: Border.all(color: divider, width: 0.5),
                   ),
                   child: Icon(
                     categoryIcon(category),
@@ -272,7 +265,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
               horizontal: isBig ? 18 : 14,
               vertical: isBig ? 14 : 12,
             ),
-            child: Container(height: 0.5, color: dividerColor),
+            child: Container(height: 0.5, color: divider),
           ),
 
           // Stats row
@@ -286,14 +279,14 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
                   '$quantity $unit'.trim(),
                   isBig,
                 ),
-                Container(width: 0.5, height: 32, color: dividerColor),
+                Container(width: 0.5, height: 32, color: divider),
                 _statCell(
                   Icons.credit_card_outlined,
                   'Total',
                   '$totalPrice $currency',
                   isBig,
                 ),
-                Container(width: 0.5, height: 32, color: dividerColor),
+                Container(width: 0.5, height: 32, color: divider),
                 _statCell(
                   Icons.schedule,
                   'Timing',
@@ -320,7 +313,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
                 decoration: BoxDecoration(
                   color: navyCardSoft,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: dividerColor, width: 0.5),
+                  border: Border.all(color: divider, width: 0.5),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -519,7 +512,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
           onPressed: () => Navigator.pop(context),
           icon: const Icon(Icons.arrow_back_ios_new, size: 18),
           color: textPrimary,
-          style: IconButton.styleFrom(backgroundColor: navyCard),
+          // style: IconButton.styleFrom(backgroundColor: navyCard),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -543,23 +536,7 @@ class _MyServiceOrdersScreenState extends State<MyServiceOrdersScreen>
             ),
           ],
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: IconButton(
-              onPressed: loadOrders,
-              icon: const Icon(Icons.refresh_rounded, size: 20),
-              color: textPrimary,
-              style: IconButton.styleFrom(
-                backgroundColor: navyCard,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: BorderSide(color: dividerColor, width: 0.5),
-                ),
-              ),
-            ),
-          ),
-        ],
+
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(0.5),
           child: Container(color: const Color(0xFF1A2A3A), height: 0.5),

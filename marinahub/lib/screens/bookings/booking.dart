@@ -1161,9 +1161,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                   // Completed/Cancelled — no check-in/out, just details
                   if (status == 'completed' || status == 'cancelled') ...[
                     buildActionButton(
-                      label: status == 'completed'
-                          ? 'View Receipt'
-                          : 'View Details',
+                      label: 'View Details',
                       color: const Color(0xFF1A4A6B),
                       textColor: Colors.white,
                       isBig: isBig,
