@@ -80,13 +80,13 @@ class registerScreenState extends State<registerScreen> {
         destination = const DashboardScreen();
         break;
       case "admin":
-        destination = adminSplash();
+        destination = AdminSplash();
         break;
       case "service":
         destination = serviceSplash();
         break;
       default:
-        destination = const DashboardScreen();
+        destination = DashboardScreen();
     }
     Navigator.pushReplacement(
       context,

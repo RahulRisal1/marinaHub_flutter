@@ -1,76 +1,83 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:marinahub/dio/myDio.dart';
+import 'package:marinahub/midlleware/loginMiddleware.dart';
 import 'package:marinahub/screens/service/myServices.dart';
+import 'package:marinahub/utils/colors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// Pass [booking] when navigating from a booking card.
-/// Leave null for walk-in / no-booking mode (e.g. just stopping for fuel).
-class requestService extends StatefulWidget {
+class RequestService extends StatefulWidget {
   final Map<String, dynamic>? booking;
-  const requestService({super.key, this.booking});
+  const RequestService({super.key, this.booking});
 
   @override
-  State<requestService> createState() => _requestServiceState();
+  State<RequestService> createState() => _RequestServiceState();
 }
 
-class _requestServiceState extends State<requestService> {
-  // ── Colours ──────────────────────────────────────────────────────────────────
-  static const Color navy = Color(0xFF0D1421);
-  static const Color navyCard = Color(0xFF142238);
-  static const Color navyCardSoft = Color(0xFF1A2940);
-  static const Color gold = Color(0xFFD4A95E);
-  static const Color textPrimary = Color(0xFFE8EAF0);
-  static const Color textSecondary = Color(0xFF8B95A8);
-  static const Color dividerColor = Color(0xFF243044);
+class _RequestServiceState extends State<RequestService> {
+  // Auth
+  String accessToken = '';
+  bool checkingAccess = true;
+  bool sheetShown = false;
 
-  // ── State ────────────────────────────────────────────────────────────────────
+  // Booking
+  Map<String, dynamic>? activeBooking;
+  bool loadingBooking = true;
+
+  // Categories & Services
   List<Map<String, dynamic>> categories = [];
   String selectedCategory = '';
   bool loadingCategories = true;
   List<dynamic> services = [];
   bool loadingServices = false;
   String? error;
+
+  // Location
   Position? userPosition;
 
-  // Sheet state
+  // Order sheet
+  Map<String, dynamic> activeService = {};
   double sheetQuantity = 1;
   String sheetTiming = 'asap';
   DateTime? scheduledAt;
   bool sheetSubmitting = false;
   final TextEditingController notesController = TextEditingController();
   final TextEditingController locationNoteController = TextEditingController();
-  Map<String, dynamic> activeService = {};
 
-  // ── Active booking (auto-fetched on load, or passed in) ─────────────────────
-  Map<String, dynamic>? _activeBooking;
-  bool _loadingBooking = true;
-
-  bool get hasBooking => _activeBooking != null;
-
-  String get _bookingId => _activeBooking?['id'] as String? ?? '';
-
-  String get _berthLabel =>
-      _activeBooking?['berth']?['name'] as String? ??
-      _activeBooking?['berth_name'] as String? ??
+  // Getters
+  bool get hasBooking => activeBooking != null;
+  String get bookingId => activeBooking?['id'] as String? ?? '';
+  String get berthLabel =>
+      activeBooking?['berth']?['name'] as String? ??
+      activeBooking?['berth_name'] as String? ??
+      '';
+  String get marinaLabel =>
+      activeBooking?['marina']?['name'] as String? ??
+      activeBooking?['marina_name'] as String? ??
       '';
 
-  String get _marinaLabel =>
-      _activeBooking?['marina']?['name'] as String? ??
-      _activeBooking?['marina_name'] as String? ??
-      '';
+  // Scaling
+  double scale(BuildContext ctx) =>
+      (MediaQuery.of(ctx).size.width / 375.0).clamp(0.75, 1.6);
+  double fs(BuildContext ctx, double base) =>
+      (base * scale(ctx)).clamp(base * 0.75, base * 1.5);
+  double d(BuildContext ctx, double base) =>
+      (base * scale(ctx)).clamp(base * 0.75, base * 1.6);
+  double px(BuildContext ctx) =>
+      MediaQuery.of(ctx).size.width < 360 ? 12.0 : 20.0;
+  bool isWide(BuildContext ctx) => MediaQuery.of(ctx).size.width >= 768;
 
-  // ── Lifecycle ────────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
-    // If booking passed in (from booking card), use it directly.
-    // Otherwise fetch from API — user may be checked in via nav bar.
+    checkAccess();
     if (widget.booking != null) {
-      _activeBooking = widget.booking;
-      _loadingBooking = false;
+      activeBooking = widget.booking;
+      loadingBooking = false;
     } else {
-      _fetchActiveBooking();
+      fetchActiveBooking();
     }
     initLocationAndCategories();
   }
@@ -82,26 +89,29 @@ class _requestServiceState extends State<requestService> {
     super.dispose();
   }
 
-  // ── Scaling helpers ──────────────────────────────────────────────────────────
-  double scale(BuildContext ctx) =>
-      (MediaQuery.of(ctx).size.width / 375.0).clamp(0.75, 1.6);
-  double fs(BuildContext ctx, double base) =>
-      (base * scale(ctx)).clamp(base * 0.75, base * 1.5);
-  double d(BuildContext ctx, double base) =>
-      (base * scale(ctx)).clamp(base * 0.75, base * 1.6);
-  double px(BuildContext ctx) =>
-      MediaQuery.of(ctx).size.width < 360 ? 12.0 : 20.0;
-  bool isWide(BuildContext ctx) => MediaQuery.of(ctx).size.width >= 768;
+  void checkAccess() {
+    SharedPreferences.getInstance().then((prefs) {
+      final token = prefs.getString('accessToken') ?? '';
+      setState(() {
+        accessToken = token;
+        checkingAccess = false;
+      });
+      if (token.isEmpty && !sheetShown) {
+        sheetShown = true;
+        // WidgetsBinding.instance.addPostFrameCallback((_) {
+        //   if (mounted)
+        //     LoginRequiredSheet.show(context, action: 'request a service');
+        // });
+      }
+    });
+  }
 
-  // ── Fetch active booking (checked_in or ongoing confirmed) ──────────────────
-  Future<void> _fetchActiveBooking() async {
+  Future<void> fetchActiveBooking() async {
     try {
       final dio = await MyDio().getDio();
       final res = await dio.get('/bookings/my');
       final bookings = res.data['bookings'] as List? ?? [];
       final now = DateTime.now();
-
-      // Priority: checked_in first, then confirmed within date range
       Map<String, dynamic>? found;
       for (final b in bookings) {
         final status = b['status'] as String? ?? '';
@@ -116,22 +126,21 @@ class _requestServiceState extends State<requestService> {
               to != null &&
               !now.isBefore(from) &&
               !now.isAfter(to)) {
-            found ??= b; // take first match, prefer checked_in
+            found ??= b;
           }
         }
       }
-
       if (mounted)
         setState(() {
-          _activeBooking = found;
-          _loadingBooking = false;
+          activeBooking = found;
+          loadingBooking = false;
         });
-    } catch (_) {
-      if (mounted) setState(() => _loadingBooking = false);
+    } on DioException catch (e) {
+      dioErrorManager(e);
+      if (mounted) setState(() => loadingBooking = false);
     }
   }
 
-  // ── Location ─────────────────────────────────────────────────────────────────
   Future<void> initLocationAndCategories() async {
     await getLocation();
     await loadCategories();
@@ -139,9 +148,8 @@ class _requestServiceState extends State<requestService> {
 
   Future<void> getLocation() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-      LocationPermission permission = await Geolocator.checkPermission();
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) return;
@@ -152,7 +160,6 @@ class _requestServiceState extends State<requestService> {
     } catch (_) {}
   }
 
-  // ── Data loading ─────────────────────────────────────────────────────────────
   Future<void> loadCategories() async {
     if (mounted) setState(() => loadingCategories = true);
     try {
@@ -177,7 +184,7 @@ class _requestServiceState extends State<requestService> {
       }
       if (fetched.isNotEmpty)
         await loadServices(fetched.first['key'] as String);
-    } catch (e) {
+    } on DioException catch (e) {
       dioErrorManager(e);
       if (mounted) setState(() => error = "Couldn't load categories");
     } finally {
@@ -195,7 +202,6 @@ class _requestServiceState extends State<requestService> {
       final dio = await MyDio().getDio();
       final res = await dio.get('/services/category/$category');
       List fetched = res.data['services'] ?? [];
-
       if (userPosition != null) {
         fetched.sort((a, b) {
           final distA = Geolocator.distanceBetween(
@@ -214,7 +220,7 @@ class _requestServiceState extends State<requestService> {
         });
       }
       if (mounted) setState(() => services = fetched);
-    } catch (e) {
+    } on DioException catch (e) {
       dioErrorManager(e);
       if (mounted) setState(() => error = "Couldn't load services");
     } finally {
@@ -228,7 +234,6 @@ class _requestServiceState extends State<requestService> {
     loadServices(key);
   }
 
-  // ── Distance helper ───────────────────────────────────────────────────────────
   String getDistance(dynamic service) {
     if (userPosition == null)
       return service['marina_location'] as String? ?? '';
@@ -247,7 +252,6 @@ class _requestServiceState extends State<requestService> {
         : '${(meters / 1000).toStringAsFixed(1)} km away';
   }
 
-  // ── Label / icon maps ─────────────────────────────────────────────────────────
   String labelFor(String key) {
     const labels = {
       'fuel': 'Fuel',
@@ -294,47 +298,81 @@ class _requestServiceState extends State<requestService> {
     return [1, 2, 5, 10];
   }
 
-  // ── Submit ────────────────────────────────────────────────────────────────────
-  Future<void> submitOrder() async {
-    // Walk-in: location note required
-    if (!hasBooking && locationNoteController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please describe where your boat is'),
-          backgroundColor: const Color(0xFF1A2940),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-      return;
-    }
-    // Scheduled: must pick a date/time
-    if (sheetTiming == 'scheduled' && scheduledAt == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please pick a date and time for scheduling'),
-          backgroundColor: const Color(0xFF1A2940),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-      return;
-    }
+  String formatScheduled(DateTime dt) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final h = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final m = dt.minute.toString().padLeft(2, '0');
+    final p = dt.hour >= 12 ? 'PM' : 'AM';
+    return '${dt.day} ${months[dt.month - 1]}, $h:$m $p';
+  }
 
+  Future<void> pickScheduledDateTime(StateSetter setSheetState) async {
+    final now = DateTime.now();
+    final darkTheme = ThemeData.dark().copyWith(
+      colorScheme: const ColorScheme.dark(
+        primary: gold,
+        onPrimary: navy,
+        surface: navyCard,
+        onSurface: textPrimary,
+      ),
+      dialogBackgroundColor: navy,
+    );
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(hours: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 90)),
+      builder: (ctx, child) => Theme(data: darkTheme, child: child!),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+      builder: (ctx, child) => Theme(data: darkTheme, child: child!),
+    );
+    if (time == null) return;
+    final picked = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    setSheetState(() => scheduledAt = picked);
+    setState(() => scheduledAt = picked);
+  }
+
+  Future<void> submitOrder() async {
+    if (!hasBooking && locationNoteController.text.trim().isEmpty) {
+      showSnack('Please describe where your boat is');
+      return;
+    }
+    if (sheetTiming == 'scheduled' && scheduledAt == null) {
+      showSnack('Please pick a date and time for scheduling');
+      return;
+    }
     if (mounted) setState(() => sheetSubmitting = true);
     try {
-      // ✅ Use 'id' — the field the API returns, not 'service_id'
       final String serviceId = activeService['service_id'] as String? ?? '';
       final String currency = activeService['currency'] as String? ?? 'NOK';
       final double pricePerUnit = (activeService['price_per_unit'] ?? 0)
           .toDouble();
       final double total = sheetQuantity * pricePerUnit;
 
-      final Map<String, dynamic> body = {
+      final body = {
         'service_id': serviceId,
         'quantity': sheetQuantity,
         'notes': notesController.text.trim().isEmpty
@@ -344,19 +382,12 @@ class _requestServiceState extends State<requestService> {
         'scheduled_at': sheetTiming == 'scheduled' && scheduledAt != null
             ? scheduledAt!.toUtc().toIso8601String()
             : null,
-        // ✅ Tell the backend which berth — booking_id if we have one,
-        //    otherwise the user-typed location note (walk-in mode)
-        if (hasBooking) 'booking_id': _bookingId,
+        if (hasBooking) 'booking_id': bookingId,
         if (!hasBooking && locationNoteController.text.trim().isNotEmpty)
           'location_note': locationNoteController.text.trim(),
       };
 
       final dio = await MyDio().getDio();
-      // Add this temporarily before dio.post
-      debugPrint('=== serviceId: $serviceId');
-      debugPrint('=== activeService keys: ${activeService.keys.toList()}');
-      debugPrint('=== activeService: $activeService');
-
       await dio.post('/service-orders', data: body);
 
       if (mounted) {
@@ -385,379 +416,140 @@ class _requestServiceState extends State<requestService> {
           ),
         );
       }
-    } catch (e) {
+    } on DioException catch (e) {
       dioErrorManager(e);
     } finally {
       if (mounted) setState(() => sheetSubmitting = false);
     }
   }
 
-  // ── Schedule date/time picker ─────────────────────────────────────────────────
-  Future<void> pickScheduledDateTime(StateSetter setSheetState) async {
-    final now = DateTime.now();
-    final date = await showDatePicker(
-      context: context,
-      initialDate: now.add(const Duration(hours: 1)),
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 90)),
-      builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: gold,
-            onPrimary: navy,
-            surface: navyCard,
-            onSurface: textPrimary,
-          ),
-          dialogBackgroundColor: navy,
-        ),
-        child: child!,
+  void showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFF1A2940),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
-      builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: gold,
-            onPrimary: navy,
-            surface: navyCard,
-            onSurface: textPrimary,
-          ),
-          dialogBackgroundColor: navy,
-        ),
-        child: child!,
-      ),
-    );
-    if (time == null) return;
-
-    final picked = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-    setSheetState(() => scheduledAt = picked);
-    setState(() => scheduledAt = picked);
   }
 
-  String _formatScheduled(DateTime dt) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final h = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
-    final m = dt.minute.toString().padLeft(2, '0');
-    final p = dt.hour >= 12 ? 'PM' : 'AM';
-    return '${dt.day} ${months[dt.month - 1]}, $h:$m $p';
-  }
-
-  // ── Sheet ─────────────────────────────────────────────────────────────────────
   void openServiceSheet(Map<String, dynamic> service) {
+    if (accessToken.isEmpty) {
+      LoginRequiredSheet.show(context, action: 'request a service');
+      return;
+    }
+
     activeService = service;
     sheetQuantity = quickAmountsFor(service['unit'] as String? ?? '').first;
     sheetTiming = 'asap';
     scheduledAt = null;
     notesController.clear();
-    // Don't clear locationNoteController — user may have typed it already
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            final viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
-            final String unit = activeService['unit'] as String? ?? '';
-            final String currency =
-                activeService['currency'] as String? ?? 'NOK';
-            final double pricePerUnit = (activeService['price_per_unit'] ?? 0)
-                .toDouble();
-            final double total = sheetQuantity * pricePerUnit;
-            final List<double> quickAmounts = quickAmountsFor(unit);
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
+          final String unit = activeService['unit'] as String? ?? '';
+          final String currency = activeService['currency'] as String? ?? 'NOK';
+          final double pricePerUnit = (activeService['price_per_unit'] ?? 0)
+              .toDouble();
+          final double total = sheetQuantity * pricePerUnit;
+          final List<double> quickAmounts = quickAmountsFor(unit);
 
-            final content = Container(
-              decoration: BoxDecoration(
-                color: navy,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(d(ctx, 24)),
-                ),
+          final content = Container(
+            decoration: BoxDecoration(
+              color: navy,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(d(ctx, 24)),
               ),
-              child: Column(
-                children: [
-                  // drag handle
-                  Container(
-                    margin: EdgeInsets.only(top: d(ctx, 12), bottom: d(ctx, 6)),
-                    width: d(ctx, 36),
-                    height: d(ctx, 4),
-                    decoration: BoxDecoration(
-                      color: dividerColor,
-                      borderRadius: BorderRadius.circular(d(ctx, 2)),
-                    ),
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.fromLTRB(
-                        px(ctx),
-                        d(ctx, 8),
-                        px(ctx),
-                        d(ctx, 20) + viewInsets,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          buildSheetHeader(ctx, unit, currency, pricePerUnit),
-                          SizedBox(height: d(ctx, 16)),
-
-                          // ── Berth context banner / walk-in field ──────────
-                          if (hasBooking)
-                            _buildBerthBanner(ctx)
-                          else
-                            _buildWalkInField(ctx),
-
-                          SizedBox(height: d(ctx, 20)),
-                          buildSectionLabel(ctx, 'QUANTITY'),
-                          SizedBox(height: d(ctx, 10)),
-                          buildQuantityRow(ctx, setSheetState, unit),
-                          SizedBox(height: d(ctx, 12)),
-                          buildQuickAmounts(
-                            ctx,
-                            setSheetState,
-                            quickAmounts,
-                            unit,
-                          ),
-                          SizedBox(height: d(ctx, 24)),
-                          buildSectionLabel(ctx, 'TIMING'),
-                          SizedBox(height: d(ctx, 10)),
-                          buildTimingToggle(ctx, setSheetState),
-                          // Date picker — only when scheduled is selected
-                          if (sheetTiming == 'scheduled') ...[
-                            SizedBox(height: d(ctx, 12)),
-                            _buildSchedulePicker(ctx, setSheetState),
-                          ],
-                          SizedBox(height: d(ctx, 24)),
-                          buildSectionLabel(ctx, 'NOTES (OPTIONAL)'),
-                          SizedBox(height: d(ctx, 10)),
-                          buildNotesField(ctx),
-                          SizedBox(height: d(ctx, 20)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  buildBottomBar(ctx, total, currency),
-                ],
-              ),
-            );
-
-            if (isWide(ctx)) {
-              return Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 640),
-                  child: DraggableScrollableSheet(
-                    initialChildSize: 0.85,
-                    minChildSize: 0.5,
-                    maxChildSize: 0.95,
-                    expand: false,
-                    builder: (_, __) => content,
-                  ),
-                ),
-              );
-            }
-            return DraggableScrollableSheet(
-              initialChildSize: 0.85,
-              minChildSize: 0.5,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (_, __) => content,
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // ── Berth context banner (booking mode) ───────────────────────────────────────
-  Widget _buildBerthBanner(BuildContext ctx) {
-    final label = [
-      if (_berthLabel.isNotEmpty) 'Berth $_berthLabel',
-      if (_marinaLabel.isNotEmpty) _marinaLabel,
-    ].join(' — ');
-
-    return Container(
-      padding: EdgeInsets.all(d(ctx, 12)),
-      decoration: BoxDecoration(
-        color: gold.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(d(ctx, 12)),
-        border: Border.all(color: gold.withOpacity(0.25), width: 0.8),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.anchor_rounded, color: gold, size: d(ctx, 16)),
-          SizedBox(width: d(ctx, 10)),
-          Expanded(
+            ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Delivering to your berth',
-                  style: TextStyle(
-                    color: gold,
-                    fontSize: fs(ctx, 11.5),
-                    fontWeight: FontWeight.w700,
+                Container(
+                  margin: EdgeInsets.only(top: d(ctx, 12), bottom: d(ctx, 6)),
+                  width: d(ctx, 36),
+                  height: d(ctx, 4),
+                  decoration: BoxDecoration(
+                    color: dividerColor,
+                    borderRadius: BorderRadius.circular(d(ctx, 2)),
                   ),
                 ),
-                if (label.isNotEmpty) ...[
-                  SizedBox(height: d(ctx, 2)),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: textSecondary,
-                      fontSize: fs(ctx, 12),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      px(ctx),
+                      d(ctx, 8),
+                      px(ctx),
+                      d(ctx, 20) + viewInsets,
                     ),
-                    overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        buildSheetHeader(ctx, unit, currency, pricePerUnit),
+                        SizedBox(height: d(ctx, 16)),
+                        hasBooking
+                            ? buildBerthBanner(ctx)
+                            : buildWalkInField(ctx),
+                        SizedBox(height: d(ctx, 20)),
+                        buildSectionLabel(ctx, 'QUANTITY'),
+                        SizedBox(height: d(ctx, 10)),
+                        buildQuantityRow(ctx, setSheetState, unit),
+                        SizedBox(height: d(ctx, 12)),
+                        buildQuickAmounts(
+                          ctx,
+                          setSheetState,
+                          quickAmounts,
+                          unit,
+                        ),
+                        SizedBox(height: d(ctx, 24)),
+                        buildSectionLabel(ctx, 'TIMING'),
+                        SizedBox(height: d(ctx, 10)),
+                        buildTimingToggle(ctx, setSheetState),
+                        if (sheetTiming == 'scheduled') ...[
+                          SizedBox(height: d(ctx, 12)),
+                          buildSchedulePicker(ctx, setSheetState),
+                        ],
+                        SizedBox(height: d(ctx, 24)),
+                        buildSectionLabel(ctx, 'NOTES (OPTIONAL)'),
+                        SizedBox(height: d(ctx, 10)),
+                        buildNotesField(ctx),
+                        SizedBox(height: d(ctx, 20)),
+                      ],
+                    ),
                   ),
-                ],
+                ),
+                buildBottomBar(ctx, total, currency),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          );
 
-  // ── Walk-in location field (no booking) ───────────────────────────────────────
-  Widget _buildWalkInField(BuildContext ctx) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: d(ctx, 10),
-            vertical: d(ctx, 8),
-          ),
-          decoration: BoxDecoration(
-            color: navyCardSoft,
-            borderRadius: BorderRadius.circular(d(ctx, 10)),
-            border: Border.all(color: dividerColor, width: 0.8),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.info_outline_rounded,
-                color: textSecondary,
-                size: d(ctx, 14),
-              ),
-              SizedBox(width: d(ctx, 7)),
-              Expanded(
-                child: Text(
-                  'No active booking — tell us where your boat is so staff can find you.',
-                  style: TextStyle(
-                    color: textSecondary,
-                    fontSize: fs(ctx, 11.5),
-                    height: 1.4,
+          final sheet = DraggableScrollableSheet(
+            initialChildSize: 0.85,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (_, __) => content,
+          );
+
+          return isWide(ctx)
+              ? Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: sheet,
                   ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(height: d(ctx, 12)),
-        buildSectionLabel(ctx, 'WHERE IS YOUR BOAT? *'),
-        SizedBox(height: d(ctx, 8)),
-        Container(
-          decoration: BoxDecoration(
-            color: navyCard,
-            borderRadius: BorderRadius.circular(d(ctx, 14)),
-            border: Border.all(color: dividerColor, width: 0.5),
-          ),
-          child: TextField(
-            controller: locationNoteController,
-            style: TextStyle(color: textPrimary, fontSize: fs(ctx, 14)),
-            maxLines: 2,
-            decoration: InputDecoration(
-              hintText: 'e.g. Berth A-12, fuel dock, yard spot 6',
-              hintStyle: TextStyle(color: textSecondary, fontSize: fs(ctx, 13)),
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: d(ctx, 14),
-                vertical: d(ctx, 12),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Schedule date/time picker widget ──────────────────────────────────────────
-  Widget _buildSchedulePicker(BuildContext ctx, StateSetter setSheetState) {
-    return GestureDetector(
-      onTap: () => pickScheduledDateTime(setSheetState),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: d(ctx, 14),
-          vertical: d(ctx, 13),
-        ),
-        decoration: BoxDecoration(
-          color: navyCard,
-          borderRadius: BorderRadius.circular(d(ctx, 12)),
-          border: Border.all(
-            color: scheduledAt != null ? gold.withOpacity(0.5) : dividerColor,
-            width: scheduledAt != null ? 1 : 0.5,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.calendar_month_rounded,
-              color: scheduledAt != null ? gold : textSecondary,
-              size: d(ctx, 18),
-            ),
-            SizedBox(width: d(ctx, 10)),
-            Expanded(
-              child: Text(
-                scheduledAt != null
-                    ? _formatScheduled(scheduledAt!)
-                    : 'Tap to pick date & time',
-                style: TextStyle(
-                  color: scheduledAt != null ? textPrimary : textSecondary,
-                  fontSize: fs(ctx, 14),
-                  fontWeight: scheduledAt != null
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                ),
-              ),
-            ),
-            if (scheduledAt != null)
-              GestureDetector(
-                onTap: () => setSheetState(() => scheduledAt = null),
-                child: Icon(
-                  Icons.close_rounded,
-                  color: textSecondary,
-                  size: d(ctx, 16),
-                ),
-              ),
-          ],
-        ),
+                )
+              : sheet;
+        },
       ),
     );
   }
 
-  // ── Sheet sub-widgets (unchanged from your original) ─────────────────────────
+  // ── Sheet Widgets ─────────────────────────────────────────────────────────────
+
   Widget buildSheetHeader(
     BuildContext ctx,
     String unit,
@@ -828,6 +620,117 @@ class _requestServiceState extends State<requestService> {
               color: gold,
               fontSize: fs(ctx, 13),
               fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildBerthBanner(BuildContext ctx) {
+    final label = [
+      if (berthLabel.isNotEmpty) 'Berth $berthLabel',
+      if (marinaLabel.isNotEmpty) marinaLabel,
+    ].join(' — ');
+
+    return Container(
+      padding: EdgeInsets.all(d(ctx, 12)),
+      decoration: BoxDecoration(
+        color: gold.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(d(ctx, 12)),
+        border: Border.all(color: gold.withOpacity(0.25), width: 0.8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.anchor_rounded, color: gold, size: d(ctx, 16)),
+          SizedBox(width: d(ctx, 10)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Delivering to your berth',
+                  style: TextStyle(
+                    color: gold,
+                    fontSize: fs(ctx, 11.5),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (label.isNotEmpty) ...[
+                  SizedBox(height: d(ctx, 2)),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: fs(ctx, 12),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildWalkInField(BuildContext ctx) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: d(ctx, 10),
+            vertical: d(ctx, 8),
+          ),
+          decoration: BoxDecoration(
+            color: navyCardSoft,
+            borderRadius: BorderRadius.circular(d(ctx, 10)),
+            border: Border.all(color: dividerColor, width: 0.8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                color: textSecondary,
+                size: d(ctx, 14),
+              ),
+              SizedBox(width: d(ctx, 7)),
+              Expanded(
+                child: Text(
+                  'No active booking — tell us where your boat is so staff can find you.',
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: fs(ctx, 11.5),
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: d(ctx, 12)),
+        buildSectionLabel(ctx, 'WHERE IS YOUR BOAT? *'),
+        SizedBox(height: d(ctx, 8)),
+        Container(
+          decoration: BoxDecoration(
+            color: navyCard,
+            borderRadius: BorderRadius.circular(d(ctx, 14)),
+            border: Border.all(color: dividerColor, width: 0.5),
+          ),
+          child: TextField(
+            controller: locationNoteController,
+            style: TextStyle(color: textPrimary, fontSize: fs(ctx, 14)),
+            maxLines: 2,
+            decoration: InputDecoration(
+              hintText: 'e.g. Berth A-12, fuel dock, yard spot 6',
+              hintStyle: TextStyle(color: textSecondary, fontSize: fs(ctx, 13)),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: d(ctx, 14),
+                vertical: d(ctx, 12),
+              ),
             ),
           ),
         ),
@@ -990,7 +893,7 @@ class _requestServiceState extends State<requestService> {
       child: GestureDetector(
         onTap: () => setSheetState(() {
           sheetTiming = key;
-          if (key == 'asap') scheduledAt = null; // clear when switching back
+          if (key == 'asap') scheduledAt = null;
         }),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
@@ -1019,6 +922,59 @@ class _requestServiceState extends State<requestService> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildSchedulePicker(BuildContext ctx, StateSetter setSheetState) {
+    return GestureDetector(
+      onTap: () => pickScheduledDateTime(setSheetState),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: d(ctx, 14),
+          vertical: d(ctx, 13),
+        ),
+        decoration: BoxDecoration(
+          color: navyCard,
+          borderRadius: BorderRadius.circular(d(ctx, 12)),
+          border: Border.all(
+            color: scheduledAt != null ? gold.withOpacity(0.5) : dividerColor,
+            width: scheduledAt != null ? 1 : 0.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.calendar_month_rounded,
+              color: scheduledAt != null ? gold : textSecondary,
+              size: d(ctx, 18),
+            ),
+            SizedBox(width: d(ctx, 10)),
+            Expanded(
+              child: Text(
+                scheduledAt != null
+                    ? formatScheduled(scheduledAt!)
+                    : 'Tap to pick date & time',
+                style: TextStyle(
+                  color: scheduledAt != null ? textPrimary : textSecondary,
+                  fontSize: fs(ctx, 14),
+                  fontWeight: scheduledAt != null
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                ),
+              ),
+            ),
+            if (scheduledAt != null)
+              GestureDetector(
+                onTap: () => setSheetState(() => scheduledAt = null),
+                child: Icon(
+                  Icons.close_rounded,
+                  color: textSecondary,
+                  size: d(ctx, 16),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -1117,7 +1073,135 @@ class _requestServiceState extends State<requestService> {
     );
   }
 
-  // ── Page body ─────────────────────────────────────────────────────────────────
+  // ── Screen Widgets ────────────────────────────────────────────────────────────
+
+  Widget buildHeader(BuildContext context) {
+    final isBig = MediaQuery.of(context).size.width >= 600;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        px(context),
+        d(context, 20),
+        px(context),
+        d(context, 4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Request Service',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isBig ? 32.0 : 26.0,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+          ),
+          SizedBox(height: d(context, 6)),
+          Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: gold,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              SizedBox(width: d(context, 6)),
+              Expanded(
+                child: Text(
+                  hasBooking
+                      ? 'Ordering for ${berthLabel.isNotEmpty ? 'Berth $berthLabel' : marinaLabel}'
+                      : userPosition != null
+                      ? 'Sorted by distance · walk-in mode'
+                      : 'Available near you · walk-in mode',
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: fs(context, 12),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildCategoryStrip(BuildContext context) {
+    final double chipHeight = d(context, 88).clamp(72.0, 110.0);
+    final double chipWidth = d(context, 78).clamp(64.0, 100.0);
+    final double iconSize = d(context, 22).clamp(18.0, 28.0);
+    final double labelSize = fs(context, 11).clamp(9.0, 14.0);
+
+    return SizedBox(
+      height: chipHeight,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(
+          horizontal: d(context, 16),
+          vertical: d(context, 10),
+        ),
+        itemCount: categories.length,
+        itemBuilder: (ctx, i) {
+          final cat = categories[i];
+          final selected = selectedCategory == cat['key'];
+          return Padding(
+            padding: EdgeInsets.only(right: d(context, 10)),
+            child: GestureDetector(
+              onTap: () => onCategoryTap(cat['key'] as String),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: chipWidth,
+                decoration: BoxDecoration(
+                  color: selected ? gold : navyCard,
+                  borderRadius: BorderRadius.circular(d(context, 14)),
+                  border: Border.all(
+                    color: selected ? gold : dividerColor,
+                    width: selected ? 1.5 : 0.5,
+                  ),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: gold.withOpacity(0.25),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      cat['icon'] as IconData,
+                      color: selected ? navy : textPrimary,
+                      size: iconSize,
+                    ),
+                    SizedBox(height: d(context, 6)),
+                    Text(
+                      cat['label'] as String,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: selected ? navy : textSecondary,
+                        fontSize: labelSize,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget buildBody(BuildContext context) {
     if (loadingServices) {
       return const Center(child: CircularProgressIndicator(color: gold));
@@ -1185,13 +1269,12 @@ class _requestServiceState extends State<requestService> {
         ),
       );
     }
-
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(
         px(context),
         d(context, 8),
         px(context),
-        d(context, 100), // so FAB doesn't cover last card
+        d(context, 100),
       ),
       itemCount: services.length,
       itemBuilder: (ctx, i) =>
@@ -1352,139 +1435,6 @@ class _requestServiceState extends State<requestService> {
     );
   }
 
-  bool isTabletOrUp(double w) => w >= 600;
-
-  // ── Header ────────────────────────────────────────────────────────────────────
-  Widget buildHeader(BuildContext context) {
-    final isBig = isTabletOrUp(MediaQuery.of(context).size.width);
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        px(context),
-        d(context, 20),
-        px(context),
-        d(context, 4),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Request Service',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isBig ? 32.0 : 26.0,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
-            ),
-          ),
-          SizedBox(height: d(context, 6)),
-          Row(
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: gold,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              SizedBox(width: d(context, 6)),
-              Expanded(
-                child: Text(
-                  hasBooking
-                      ? 'Ordering for '
-                            '${_berthLabel.isNotEmpty ? 'Berth $_berthLabel' : _marinaLabel}'
-                      : userPosition != null
-                      ? 'Sorted by distance · walk-in mode'
-                      : 'Available near you · walk-in mode',
-                  style: TextStyle(
-                    color: textSecondary,
-                    fontSize: fs(context, 12),
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Category strip ────────────────────────────────────────────────────────────
-  Widget buildCategoryStrip(BuildContext context) {
-    final double chipHeight = d(context, 88).clamp(72.0, 110.0);
-    final double chipWidth = d(context, 78).clamp(64.0, 100.0);
-    final double iconSize = d(context, 22).clamp(18.0, 28.0);
-    final double labelSize = fs(context, 11).clamp(9.0, 14.0);
-
-    return SizedBox(
-      height: chipHeight,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(
-          horizontal: d(context, 16),
-          vertical: d(context, 10),
-        ),
-        itemCount: categories.length,
-        itemBuilder: (ctx, i) {
-          final cat = categories[i];
-          final selected = selectedCategory == cat['key'];
-          return Padding(
-            padding: EdgeInsets.only(right: d(context, 10)),
-            child: GestureDetector(
-              onTap: () => onCategoryTap(cat['key'] as String),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: chipWidth,
-                decoration: BoxDecoration(
-                  color: selected ? gold : navyCard,
-                  borderRadius: BorderRadius.circular(d(context, 14)),
-                  border: Border.all(
-                    color: selected ? gold : dividerColor,
-                    width: selected ? 1.5 : 0.5,
-                  ),
-                  boxShadow: selected
-                      ? [
-                          BoxShadow(
-                            color: gold.withOpacity(0.25),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      cat['icon'] as IconData,
-                      color: selected ? navy : textPrimary,
-                      size: iconSize,
-                    ),
-                    SizedBox(height: d(context, 6)),
-                    Text(
-                      cat['label'] as String,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: selected ? navy : textSecondary,
-                        fontSize: labelSize,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  // ── Scaffold ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(

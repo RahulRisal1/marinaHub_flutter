@@ -43,11 +43,15 @@ class _SplashscreenState extends State<Splashscreen> {
         destination = DashboardScreen();
         break;
       case "admin":
-        destination = DashboardScreen();
+        destination = AdminSplash();
+        break;
+      case "platform_manager":
+        destination = AdminSplash(platformManager: true);
         break;
       case "service":
         destination = serviceSplash();
         break;
+
       default:
         destination = DashboardScreen();
         break;

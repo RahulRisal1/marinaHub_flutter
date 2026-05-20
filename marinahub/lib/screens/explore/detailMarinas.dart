@@ -5,7 +5,9 @@ import 'package:marinahub/dashboardscreen/dashboardscreen.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:dio/dio.dart';
+import 'package:marinahub/midlleware/loginMiddleware.dart';
 import 'package:marinahub/screens/bookings/booking.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DetailMarinas extends StatefulWidget {
   final Map marina;
@@ -59,6 +61,7 @@ class _DetailMarinasState extends State<DetailMarinas>
     animController.forward();
     getUserLocation();
     loadBerths();
+    checkAccess();
     searchController.addListener(() {
       setState(() {
         searchQuery = searchController.text.toLowerCase();
@@ -85,6 +88,15 @@ class _DetailMarinasState extends State<DetailMarinas>
         return name.contains(searchQuery) || desc.contains(searchQuery);
       }).toList();
     }
+  }
+
+  String accessToken = "";
+  void checkAccess() {
+    SharedPreferences.getInstance().then((prefs) {
+      setState(() {
+        accessToken = prefs.getString('accessToken') ?? "";
+      });
+    });
   }
 
   Future<void> getUserLocation() async {
@@ -1521,6 +1533,13 @@ class _DetailMarinasState extends State<DetailMarinas>
                                             flex: 2,
                                             child: GestureDetector(
                                               onTap: () => setState(() {
+                                                if (accessToken.isEmpty) {
+                                                  LoginRequiredSheet.show(
+                                                    context,
+                                                    action: 'continue',
+                                                  );
+                                                  return;
+                                                }
                                                 bookingBerth = berth;
                                                 selectedBerthId = berth['id'];
                                                 showBookingSheet = true;

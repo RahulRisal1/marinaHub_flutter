@@ -4,6 +4,7 @@ import 'package:marinahub/more/morePage.dart';
 import 'package:marinahub/screens/bookings/booking.dart';
 import 'package:marinahub/screens/homePage.dart';
 import 'package:marinahub/screens/service/requestService.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int initialTab;
@@ -24,9 +25,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     HomePage(),
     BoatMapScreen(),
     MyBookingsScreen(),
-    requestService(),
+
+    RequestService(),
     MorePage(),
   ];
+
+  String accessToken = "";
+  void checkAccess() {
+    SharedPreferences.getInstance().then((prefs) {
+      setState(() {
+        accessToken = prefs.getString('accessToken') ?? "";
+      });
+    });
+  }
 
   @override
   void initState() {
@@ -49,6 +60,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
 
     _controller.forward();
+    checkAccess();
   }
 
   @override
@@ -76,7 +88,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             opacity: _fadeAnimation,
             child: ScaleTransition(
               scale: _scaleAnimation,
-              child: screens[selectedNav],
+              child: IndexedStack(
+                // ← change this
+                index: selectedNav,
+                children: screens,
+              ),
             ),
           );
         },

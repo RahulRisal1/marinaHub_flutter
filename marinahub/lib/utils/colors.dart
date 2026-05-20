@@ -18,3 +18,4 @@ final Color border = const Color(0xFF1E2D45);
 final Color accentBlue = const Color(0xFF4A9EFF);
 final Color accentGreen = const Color(0xFF1D9E75);
 final Color fieldColor = const Color(0xFF1A2B3D);
+final Color dividerColor = Color(0xFF243044);

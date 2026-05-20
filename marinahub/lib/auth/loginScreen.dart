@@ -67,10 +67,10 @@ class LoginScreenState extends State<LoginScreen> {
     Widget destination;
     switch (role) {
       case "boater":
-        destination = const DashboardScreen();
+        destination = DashboardScreen();
         break;
       case "admin":
-        destination = adminSplash();
+        destination = AdminSplash();
         break;
       case "service":
         destination = serviceSplash();

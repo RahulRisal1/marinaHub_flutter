@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:marinahub/main.dart';
+
+import '../main.dart';
 
 void MyDialog({
   BuildContext? context,
@@ -7,17 +8,18 @@ void MyDialog({
   required String message,
   required String okText,
 }) {
+  final ctx = navigationKey.currentContext;
+  if (ctx == null) return;
+
   showDialog(
-    context: navigationKey.currentContext!,
+    context: ctx, // ← no ! force unwrap
     builder: (context) {
       return AlertDialog(
         actions: [
           InkWell(
-            onTap: () {
-              Navigator.of(context).pop();
-            },
+            onTap: () => Navigator.of(context).pop(),
             child: Padding(
-              padding: const EdgeInsets.all(8.0),
+              padding: EdgeInsets.all(8.0),
               child: Text(
                 okText,
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -29,7 +31,7 @@ void MyDialog({
           title,
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        content: Text(message, style: TextStyle()),
+        content: Text(message),
       );
     },
   );

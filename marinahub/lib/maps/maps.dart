@@ -4,6 +4,8 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:marinahub/dio/myDio.dart';
 import 'package:marinahub/dio/dioErrorManager.dart';
 import 'package:marinahub/screens/explore/detailMarinas.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:io' show Platform;
 
 class BoatMapScreen extends StatefulWidget {
   const BoatMapScreen({super.key});
@@ -140,6 +142,33 @@ class _BoatMapScreenState extends State<BoatMapScreen> {
 
     if (marinas.isNotEmpty) {
       _addMarinaMarkers();
+    }
+  }
+
+  Future<void> _openInMaps(Map marina) async {
+    final lat = (marina['latitude'] as num?)?.toDouble();
+    final lng = (marina['longitude'] as num?)?.toDouble();
+    final name = Uri.encodeComponent(marina['name'] ?? 'Marina');
+
+    if (lat == null || lng == null) return;
+
+    final Uri url;
+    if (Platform.isIOS) {
+      url = Uri.parse('maps://?daddr=$lat,$lng&q=$name');
+    } else {
+      url = Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&destination_place_id=$name&travelmode=driving',
+      );
+    }
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      // Fallback: open Google Maps in browser on both platforms
+      final fallback = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+      );
+      await launchUrl(fallback, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -353,6 +382,22 @@ class _BoatMapScreenState extends State<BoatMapScreen> {
                               ],
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => _openInMaps(selectedMarina!),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC9A84C),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.directions,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),

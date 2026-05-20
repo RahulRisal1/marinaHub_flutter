@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:marinahub/dio/myDio.dart';
@@ -79,7 +80,7 @@ class _exploreScreenState extends State<exploreScreen> {
         marinas = res.data['marinas'];
         applyFilter();
       });
-    } catch (e) {
+    } on DioException catch (e) {
       dioErrorManager(e);
     } finally {
       setState(() => loading = false);

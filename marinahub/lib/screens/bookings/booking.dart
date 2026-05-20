@@ -21,7 +21,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
   late TabController tabController;
   final TextEditingController searchController = TextEditingController();
 
-  // ── Info banner dismiss (hidden for 24 h via SharedPrefs) ───────────────
   bool _showInfoBanner = false;
 
   @override
